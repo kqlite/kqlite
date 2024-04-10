@@ -2,5 +2,6 @@
 ## <img src="https://github.com/kqlite/kqlite/blob/main/kqlite-logo.png" width="65px"> *kqlite*
 #### High availability sqlite databases over PostgreSQL connection.<br>
 
-- High available and lightweight replicated sqlite database for Edge.
-- High available K8s clusters consisting of only two nodes using *kqlite* as backend storage.
+- Lightweight replicated sqlite database for Edge and IoT devices over the PostgreSQL wire protocol.
+- High availability K8s (Edge) clusters can consists of only two nodes when using *kqlite* as a backend storage.
+- Automatic failover to an active replica node and registering back as secondary a former primary.
