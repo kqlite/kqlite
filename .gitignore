@@ -1,0 +1,29 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# vscode related ignores
+/.vscode/
+
+# vim related ignores
+*.swp
+
+# git related ignores
+*.rej
+*.orig
+.git-module-status
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# geany ide related files
+*.geany
+*.tags
+# Dependency directories (remove the comment below to include it)
+# vendor/
