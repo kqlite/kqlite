@@ -1,6 +1,6 @@
 export BIN ?= ${CURDIR}/bin
 
-GO_BUILD = go build -trimpath -o $(BIN)/kqlite ${CURDIR}/cmd/kqlite
+GO_BUILD = go build -tags vtable -trimpath -o $(BIN)/kqlite ${CURDIR}/cmd/kqlite
 
 # Make sure BIN is on the PATH
 export PATH := $(BIN):$(PATH)
