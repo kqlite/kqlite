@@ -51,6 +51,10 @@ docker-push: ## Push kqlite image.
 kqlite: ## Build kqlite binary.
 	$(GO_BUILD)
 
+.PHONY: example
+example: ## Build example client program.
+	go build --trimpath -o $(BIN)/example.bin ${CURDIR}/cmd/example
+
 .PHONY: clean
 clean: clean-binary
 

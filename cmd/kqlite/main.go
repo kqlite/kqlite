@@ -8,7 +8,7 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/kqlite/kqlite"
+	"github.com/kqlite/kqlite/pkg/server"
 )
 
 func main() {
@@ -32,7 +32,7 @@ func run(ctx context.Context) error {
 
 	log.SetFlags(0)
 
-	s := kqlite.NewServer()
+	s := server.NewServer()
 	s.Addr = *addr
 	s.DataDir = *dataDir
 	if err := s.Open(); err != nil {
