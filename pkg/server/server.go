@@ -9,68 +9,21 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/jackc/pgproto3/v2"
 	"github.com/jackc/pgtype"
-	"github.com/mattn/go-sqlite3"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/kqlite/kqlite/pkg/parser"
+	"github.com/kqlite/kqlite/pkg/sqlite"
 )
 
 // Postgres settings.
 const (
 	ServerVersion = "13.0.0"
 )
-
-func init() {
-	sql.Register("kqlite-sqlite3", &sqlite3.SQLiteDriver{
-		ConnectHook: func(conn *sqlite3.SQLiteConn) error {
-			if err := conn.RegisterFunc("current_catalog", currentCatalog, true); err != nil {
-				return fmt.Errorf("cannot register current_catalog() function")
-			}
-			if err := conn.RegisterFunc("current_schema", currentSchema, true); err != nil {
-				return fmt.Errorf("cannot register current_schema() function")
-			}
-			if err := conn.RegisterFunc("current_user", currentUser, true); err != nil {
-				return fmt.Errorf("cannot register current_schema() function")
-			}
-			if err := conn.RegisterFunc("session_user", sessionUser, true); err != nil {
-				return fmt.Errorf("cannot register session_user() function")
-			}
-			if err := conn.RegisterFunc("user", user, true); err != nil {
-				return fmt.Errorf("cannot register user() function")
-			}
-			if err := conn.RegisterFunc("show", show, true); err != nil {
-				return fmt.Errorf("cannot register show() function")
-			}
-			if err := conn.RegisterFunc("format_type", formatType, true); err != nil {
-				return fmt.Errorf("cannot register format_type() function")
-			}
-			if err := conn.RegisterFunc("version", version, true); err != nil {
-				return fmt.Errorf("cannot register version() function")
-			}
-			return nil
-		},
-	})
-}
-
-func currentCatalog() string { return "public" }
-func currentSchema() string  { return "public" }
-
-func currentUser() string { return "sqlite3" }
-func sessionUser() string { return "sqlite3" }
-func user() string        { return "sqlite3" }
-
-func version() string { return "kqlite v0.0.0" }
-
-func formatType(type_oid, typemod string) string { return "" }
-
-func show(name string) string { return "" }
 
 type Server struct {
 	mu    sync.Mutex
@@ -259,7 +212,7 @@ func (s *Server) handleStartupMessage(ctx context.Context, c *Conn, msg *pgproto
 	}
 
 	// Open SQL database & attach to the connection.
-	if c.db, err = sql.Open("kqlite-sqlite3", filepath.Join(s.DataDir, name)); err != nil {
+	if c.db, err = sql.Open(sqlite.DriverName, filepath.Join(s.DataDir, name)); err != nil {
 		return err
 	}
 
@@ -356,8 +309,7 @@ func scanRow(rows *sql.Rows, cols []*sql.ColumnType) (*pgproto3.DataRow, error) 
 
 func (s *Server) handleParseMessage(ctx context.Context, c *Conn, pmsg *pgproto3.Parse) error {
 	// Rewrite system-information queries so they're tolerable by SQLite.
-	query := rewriteQuery(pmsg.Query)
-	query = q(query)
+	query := parser.RewriteQuery(pmsg.Query)
 
 	if pmsg.Query != query {
 		log.Printf("query rewrite: %s", query)
@@ -408,11 +360,9 @@ func (s *Server) handleParseMessage(ctx context.Context, c *Conn, pmsg *pgproto3
 		case *pgproto3.Execute:
 			// Bind received, create Row description.
 			if msgState.ObjectType == 0x50 && len(binds) != 0 {
-				log.Printf("Execute")
 				if err := exec(); err != nil {
 					return fmt.Errorf("exec: %w", err)
 				}
-
 				buf, _ := toRowDescription(cols).Encode(nil)
 				if _, err := c.Write(buf); err != nil {
 					return err
@@ -436,10 +386,15 @@ func (s *Server) handleParseMessage(ctx context.Context, c *Conn, pmsg *pgproto3
 			buf, _ = (&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")}).Encode(buf)
 			buf, _ = (&pgproto3.ReadyForQuery{TxStatus: 'I'}).Encode(buf)
 			_, err := c.Write(buf)
+			msgState = pgproto3.Describe{}
+
+			if rows != nil {
+				rows.Close()
+			}
 			return err
 
 		case *pgproto3.Sync:
-			if msgState.ObjectType == 0x53 {
+			if (msgState != pgproto3.Describe{}) && (msgState.ObjectType == 0x53) {
 				if argCount, err := parser.QueryArgsCount(query); err != nil {
 					return err
 				} else {
@@ -510,51 +465,3 @@ func writeMessages(w io.Writer, msgs ...pgproto3.Message) error {
 	_, err := w.Write(buf)
 	return err
 }
-
-func q(sql string) string {
-	regex := regexp.MustCompile(`\?`)
-	pref := "$"
-	n := 0
-	return regex.ReplaceAllStringFunc(sql, func(string) string {
-		n++
-		return pref + strconv.Itoa(n)
-	})
-}
-
-func rewriteQuery(q string) string {
-	// Ignore SET queries by rewriting them to empty resultsets.
-	if strings.HasPrefix(q, "SET ") {
-		return `SELECT 'SET'`
-	}
-
-	// Ignore this god forsaken query for pulling keywords.
-	if strings.Contains(q, `select string_agg(word, ',') from pg_catalog.pg_get_keywords()`) {
-		return `SELECT '' AS "string_agg" WHERE 1 = 2`
-	}
-
-	// Rewrite system information variables so they are functions so we can inject them.
-	// https://www.postgresql.org/docs/9.1/functions-info.html
-	q = systemFunctionRegex.ReplaceAllString(q, "$1()$2")
-
-	// Rewrite double-colon casting by simply removing it.
-	// https://www.postgresql.org/docs/7.3/sql-expressions.html#SQL-SYNTAX-TYPE-CASTS
-	q = castRegex.ReplaceAllString(q, "")
-
-	// Remove references to the pg_catalog.
-	// q = pgCatalogRegex.ReplaceAllString(q, "")
-
-	// Rewrite "SHOW" commands into function calls.
-	q = showRegex.ReplaceAllString(q, "SELECT show('$1')")
-
-	return q
-}
-
-var (
-	systemFunctionRegex = regexp.MustCompile(`\b(current_catalog|current_schema|current_user|session_user|user)\b([^\(]|$)`)
-
-	castRegex = regexp.MustCompile(`::(regclass)`)
-
-	pgCatalogRegex = regexp.MustCompile(`\bpg_catalog\.`)
-
-	showRegex = regexp.MustCompile(`^SHOW (\w+)`)
-)
