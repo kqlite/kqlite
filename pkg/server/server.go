@@ -18,6 +18,8 @@ import (
 	"github.com/jackc/pgtype"
 	"github.com/mattn/go-sqlite3"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/kqlite/kqlite/pkg/parser"
 )
 
 // Postgres settings.
@@ -355,7 +357,6 @@ func scanRow(rows *sql.Rows, cols []*sql.ColumnType) (*pgproto3.DataRow, error) 
 func (s *Server) handleParseMessage(ctx context.Context, c *Conn, pmsg *pgproto3.Parse) error {
 	// Rewrite system-information queries so they're tolerable by SQLite.
 	query := rewriteQuery(pmsg.Query)
-
 	query = q(query)
 
 	if pmsg.Query != query {
@@ -384,43 +385,8 @@ func (s *Server) handleParseMessage(ctx context.Context, c *Conn, pmsg *pgproto3
 		return nil
 	}
 
-	//execDescirbe := func() (err error) {
-	//	stmt, err := c.db.PrepareContext(ctx, "SELECT brand, model FROM cars LIMIT 1")
-	//	if err != nil {
-	//		return fmt.Errorf("prepare: %w", err)
-	//	}
-	//	if rows != nil {
-	//		return nil
-	//	}
-	//	if rows, err = stmt.QueryContext(ctx); err != nil {
-	//		return fmt.Errorf("query: %w", err)
-	//	}
-	//	if cols, err = rows.ColumnTypes(); err != nil {
-	//		return fmt.Errorf("column types: %w", err)
-	//	}
-	//	return nil
-	//}
-
-	execDescirbe := func() (err error) {
-		//log.Printf("parsed query: %#v", tree)
-
-		stmt, err := c.db.PrepareContext(ctx, "SELECT brand, model, year FROM cars LIMIT 1")
-		if err != nil {
-			return fmt.Errorf("prepare: %w", err)
-		}
-		if rows != nil {
-			return nil
-		}
-		if rows, err = stmt.QueryContext(ctx); err != nil {
-			return fmt.Errorf("query: %w", err)
-		}
-		if cols, err = rows.ColumnTypes(); err != nil {
-			return fmt.Errorf("column types: %w", err)
-		}
-		return nil
-	}
-
 	// LOOP:
+	var msgState pgproto3.Describe
 	for {
 		msg, err := c.backend.Receive()
 		if err != nil {
@@ -434,28 +400,26 @@ func (s *Server) handleParseMessage(ctx context.Context, c *Conn, pmsg *pgproto3
 			binds = make([]interface{}, len(msg.Parameters))
 			for i := range msg.Parameters {
 				binds[i] = string(msg.Parameters[i])
-				log.Printf("bind: %s\n", string(msg.Parameters[i]))
 			}
-
 		case *pgproto3.Describe:
-			/*
-				if err := execDescirbe(); err != nil {
+			msgState = *msg
+			break
+
+		case *pgproto3.Execute:
+			// Bind received, create Row description.
+			if msgState.ObjectType == 0x50 && len(binds) != 0 {
+				log.Printf("Execute")
+				if err := exec(); err != nil {
 					return fmt.Errorf("exec: %w", err)
-				}*/
-			if msg.ObjectType == 0x50 {
+				}
+
 				buf, _ := toRowDescription(cols).Encode(nil)
 				if _, err := c.Write(buf); err != nil {
 					return err
 				}
 			}
-			break
 
-		case *pgproto3.Execute:
 			// TODO: Send pgproto3.ParseComplete?
-			if err := exec(); err != nil {
-				return fmt.Errorf("exec: %w", err)
-			}
-
 			var buf []byte
 			for rows.Next() {
 				row, err := scanRow(rows, cols)
@@ -475,58 +439,22 @@ func (s *Server) handleParseMessage(ctx context.Context, c *Conn, pmsg *pgproto3
 			return err
 
 		case *pgproto3.Sync:
-			//buf, _ = (&pgproto3.ErrorResponse{Code: "42P14", Message: "No such prepared statement"}).Encode([]byte{})
-			//c.Write(buf)
-			//buf, _ = (&pgproto3.ParseComplete{}).Encode(buf)
-			//buf, _ = (&pgproto3.ParameterDescription{ParameterOIDs: []uint32{}}).Encode(buf)
-			//writeMessages(c, &pgproto3.ParseComplete{})
-
-			//writeMessages(c, &pgproto3.ParseComplete{}, &pgproto3.BindComplete{})
-			//writeMessages(c, &pgproto3.ParseComplete{})
-			if err := execDescirbe(); err != nil {
-				return fmt.Errorf("exec: %w", err)
-			}
-			//desc := toRowDescription(cols)
-
-			writeMessages(c,
-				&pgproto3.ParseComplete{},
-				&pgproto3.ParameterDescription{ParameterOIDs: []uint32{pgtype.TextOID, pgtype.TextOID}},
-				//desc,
-				&pgproto3.ReadyForQuery{TxStatus: 'I'})
-			continue
-
-			//if err := execDescirbe(); err != nil {
-			//	return fmt.Errorf("exec: %w", err)
-			//}
-			//buf, _ := toRowDescription(cols).Encode(nil)
-			//if _, err := c.Write(buf); err != nil {
-			//	return err
-			//}
-			/*
-				if err := exec(); err != nil {
-					return fmt.Errorf("exec: %w", err)
-				}
-
-				//var buf []byte
-				for rows.Next() {
-					row, err := scanRow(rows, cols)
-					if err != nil {
-						return fmt.Errorf("scan: %w", err)
+			if msgState.ObjectType == 0x53 {
+				if argCount, err := parser.QueryArgsCount(query); err != nil {
+					return err
+				} else {
+					params := make([]uint32, argCount)
+					for idx := range params {
+						params[idx] = pgtype.TextOID
 					}
-					buf, _ = row.Encode(buf)
+					writeMessages(c,
+						&pgproto3.ParseComplete{},
+						&pgproto3.ParameterDescription{ParameterOIDs: params},
+						//desc,
+						&pgproto3.ReadyForQuery{TxStatus: 'I'})
 				}
-				if err := rows.Err(); err != nil {
-					return fmt.Errorf("rows: %w", err)
-				}
-
-				// Mark command complete and ready for next query.
-				buf, _ = (&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")}).Encode(buf)
-			*/
-			//var bufn []byte
-			//bufn, _ = (&pgproto3.ReadyForQuery{TxStatus: 'I'}).Encode(bufn)
-			//_, err := c.Write(bufn)
-			//return err
-
+			}
+			break
 		default:
 			return fmt.Errorf("unexpected message type during parse: %#v", msg)
 		}

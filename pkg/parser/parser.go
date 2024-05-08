@@ -31,7 +31,7 @@ func QueryArgsCount(query string) (int, error) {
 	}
 
 	var tree interface{}
-	err := json.Unmarshal([]byte(data), &tree)
+	err = json.Unmarshal([]byte(data), &tree)
 	if err != nil {
 		return 0, fmt.Errorf("Error unmarshal json, error: %s", err.Error())
 	}
