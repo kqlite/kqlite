@@ -22,6 +22,9 @@
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
+# JSON files
+*.json
+
 # geany ide related files
 *.geany
 *.tags
