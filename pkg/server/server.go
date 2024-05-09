@@ -234,6 +234,14 @@ func (s *Server) handleSSLRequestMessage(ctx context.Context, c *Conn, msg *pgpr
 func (s *Server) handleQueryMessage(ctx context.Context, c *Conn, msg *pgproto3.Query) error {
 	log.Printf("received query: %q", msg.String)
 
+	// Respond to ping queries.
+	if strings.HasPrefix(msg.String, "--") && strings.HasSuffix(msg.String, "ping") {
+		writeMessages(c,
+			&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")},
+			&pgproto3.ReadyForQuery{TxStatus: 'I'})
+		return nil
+	}
+
 	// Execute query against database.
 	rows, err := c.db.QueryContext(ctx, msg.String)
 	if err != nil {
