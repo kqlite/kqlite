@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	dataSourceName := "postgres://127.0.0.1:5432/kine.db.back?sslmode=disable"
+	dataSourceName := "postgres://127.0.0.1:5432/sakila_master.db?sslmode=disable"
 
 	db, err := sql.Open("pgx", dataSourceName)
 	if err != nil {
@@ -20,29 +20,39 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
 
-	//status := "up"
-	//if err := db.PingContext(ctx); err != nil {
-	//	log.Fatal(err)
-	//}
-	//log.Println(status)
+	status := "up"
+	if err := db.PingContext(ctx); err != nil {
+		log.Fatal(err)
+	}
+	log.Println(status)
 
-	rows, err := db.QueryContext(ctx, "SELECT brand, model, year FROM cars WHERE brand = ? AND year = ?", "skoda", "2021")
-
+	//rows, err := db.QueryContext(ctx, "SELECT brand, model FROM cars WHERE brand = ?", "skoda")
+	//rows, err := db.QueryContext(ctx, "update cars set model = 'rapid' where brand = ?", "skoda")
+	//langid := 4
+	//rows, err := db.QueryContext(ctx, "SELECT * FROM language WHERE language_id=?", "4")
+	stmt, _ := db.PrepareContext(ctx, "SELECT * FROM language WHERE name=? AND last_update=?")
+	rows, err := stmt.QueryContext(ctx, "Mandarin", "2020-12-23 07:12:12")
+	//rows, err := db.QueryContext(ctx, "DELETE FROM customer WHERE customer_id=?", "17")
 	//rows, err := db.QueryContext(ctx, "SELECT * FROM cars")
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer rows.Close()
 
-	var brand, year, model string
+	//var brand, model string
+	var lang_id int
+	var lang, date string
 	for rows.Next() {
-		if err := rows.Scan(&brand, &model, &year); err != nil {
+		//if err := rows.Scan(&brand, &model); err != nil {
+		if err := rows.Scan(&lang_id, &lang, &date); err != nil {
 			// Check for a scan error.
 			// Query rows will be closed with defer.
 			log.Fatal(err)
 		}
 	}
-	log.Printf("brand: %s, model: %s, year: %s", brand, model, year)
+	//log.Printf("brand: %s, model: %s", brand, model)
+	log.Printf("lang_id: %d, lang: %s, date: %s", lang_id, lang, date)
+	stmt.Close()
 	db.Close()
 }
 

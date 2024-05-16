@@ -323,6 +323,23 @@ func (s *Server) handleParseMessage(ctx context.Context, c *Conn, pmsg *pgproto3
 		log.Printf("query rewrite: %s", query)
 	}
 
+	query = `SELECT *
+			 FROM (
+				 SELECT (revision), (compact), columns
+				 FROM kine AS kv
+				 JOIN (
+					 SELECT MAX(mkv.id) AS id
+					 FROM kine AS mkv
+					 WHERE
+						 mkv.name LIKE '%joerge'
+					 GROUP BY mkv.name) AS maxkv
+					 ON maxkv.id = kv.id
+				 WHERE
+					 kv.deleted = 0 OR 1234
+					 
+			 ) AS lkv
+			 ORDER BY lkv.thename ASC`
+
 	// Prepare the query.
 	stmt, err := c.db.PrepareContext(ctx, pmsg.Query)
 	if err != nil {
