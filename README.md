@@ -1,4 +1,4 @@
-# <img src="https://avatars.githubusercontent.com/u/166529745?s=400&u=41ea395203fc77b863f14d1079fb5f9bd9bdaadb&v=4" width="100px">*kqlite*&nbsp;
+# <img src="https://avatars.githubusercontent.com/u/166529745?s=400&u=41ea395203fc77b863f14d1079fb5f9bd9bdaadb&v=4" width="85px">*kqlite*&nbsp;
 [![CI](https://github.com/kqlite/kqlite/actions/workflows/go.yml/badge.svg)](https://github.com/kqlite/kqlite/actions/workflows/go.yml) 
 [![Go Report Card](https://goreportcard.com/badge/github.com/kqlite/kqlite)](https://goreportcard.com/report/github.com/kqlite/kqlite)
 
