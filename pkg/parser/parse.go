@@ -8,16 +8,10 @@ import (
 	pg_query "github.com/pganalyze/pg_query_go/v5"
 )
 
-const (
-    SELECT string = "SELECT"
-    UPDATE  	  = "UPDATE"
-    DELETE		  = "DELETE"
-)
-
-// Reflect an SQL statement.
-type Statement struct {
-	Type   string            // Type of statement ex.(SELECT, UPDATE, DELETE)
-	Params map[string]string // Statement parameters associated with a source/target table.
+// SQL statement parameters associated with a source/target table.
+type StmtParams struct {
+	Table	string		// source/target table
+	Params	[]string	// Statement parameters associated with the given table.
 }
 
 func stringSlice(list *pg_query.List) []string {
@@ -127,4 +121,3 @@ func Parse(query string) ([]Statement, error) {
 	}
 	return stmts, nil
 }
-

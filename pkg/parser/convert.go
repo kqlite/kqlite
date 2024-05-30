@@ -64,7 +64,7 @@ func convertSlice(nodes []*pg_query.Node) *ast.List {
 	return out
 }
 
-func convert(node *pg_query.Node) (Statement, error) {
+func convert(node *pg_query.Node) ([]StmtParams, error) {
 	return convertNode(node)
 }
 
@@ -2482,21 +2482,21 @@ func convertSelectStmt(n *pg_query.SelectStmt) (Statement, error) {
 	return &ast.SelectStmt{
 		// TODO
 		//TargetList:     convertSlice(n.TargetList),
-		FromClause:     convertSlice(n.FromClause),
-		WhereClause:    convertNode(n.WhereClause),
-		GroupClause:    convertSlice(n.GroupClause),
-		HavingClause:   convertNode(n.HavingClause),
-		WindowClause:   convertSlice(n.WindowClause),
-		ValuesLists:    convertSlice(n.ValuesLists),
-		SortClause:     convertSlice(n.SortClause),
-		LimitOffset:    convertNode(n.LimitOffset),
-		LimitCount:     convertNode(n.LimitCount),
-		LockingClause:  convertSlice(n.LockingClause),
-		WithClause:     convertWithClause(n.WithClause),
-		Op:             op,
-		All:            n.All,
-		Larg:           convertSelectStmt(n.Larg),
-		Rarg:           convertSelectStmt(n.Rarg),
+		FromClause:    convertSlice(n.FromClause),
+		WhereClause:   convertNode(n.WhereClause),
+		GroupClause:   convertSlice(n.GroupClause),
+		HavingClause:  convertNode(n.HavingClause),
+		WindowClause:  convertSlice(n.WindowClause),
+		ValuesLists:   convertSlice(n.ValuesLists),
+		SortClause:    convertSlice(n.SortClause),
+		LimitOffset:   convertNode(n.LimitOffset),
+		LimitCount:    convertNode(n.LimitCount),
+		LockingClause: convertSlice(n.LockingClause),
+		WithClause:    convertWithClause(n.WithClause),
+		Op:            op,
+		All:           n.All,
+		Larg:          convertSelectStmt(n.Larg),
+		Rarg:          convertSelectStmt(n.Rarg),
 	}
 }
 

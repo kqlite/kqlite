@@ -9,7 +9,7 @@ import (
 )
 
 // Reflect an SQL statement.
-type Statement struct {
+type StatementN struct {
 	Type   string            // Type of statement ex.(SELECT, UPDATE, DELETE)
 	Params map[string]string // Statement parameters associated with a source/target table.
 }
@@ -28,8 +28,8 @@ func getWhereClause(statement string, result *pg_query.ParseResult) *pg_query.No
 	return nil
 }
 
-func QueryToStatement(query string) (Statement, error) {
-	stmt := Statement{}
+func QueryToStatement(query string) (StatementN, error) {
+	stmt := StatementN{}
 
 	splits := strings.SplitN(query, " ", 2)
 	if splits == nil {
