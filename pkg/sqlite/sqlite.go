@@ -3,6 +3,7 @@ package sqlite
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/mattn/go-sqlite3"
 )
@@ -53,3 +54,33 @@ func version() string { return "kqlite v0.0.0" }
 func formatType(type_oid, typemod string) string { return "" }
 
 func show(name string) string { return "" }
+
+func DatabaseTypeConvSqlite(t string) int {
+	if strings.Contains(t, "INT") {
+		return sqlite3.SQLITE_INTEGER
+	}
+	if t == "CLOB" || t == "TEXT" ||
+		strings.Contains(t, "CHAR") {
+		return sqlite3.SQLITE_TEXT
+	}
+	if t == "BLOB" {
+		return sqlite3.SQLITE_BLOB
+	}
+	if t == "REAL" || t == "FLOAT" ||
+		strings.Contains(t, "DOUBLE") {
+		return sqlite3.SQLITE_REAL
+	}
+	if t == "DATE" || t == "DATETIME" ||
+		t == "TIMESTAMP" {
+		return sqlite3.SQLITE_TIME
+	}
+	if t == "NUMERIC" ||
+		strings.Contains(t, "DECIMAL") {
+		return sqlite3.SQLITE_NUMERIC
+	}
+	if t == "BOOLEAN" {
+		return sqlite3.SQLITE_BOOL
+	}
+
+	return sqlite3.SQLITE_NULL
+}
