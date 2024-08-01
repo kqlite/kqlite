@@ -150,8 +150,7 @@ func walkAlterDatabaseSetStmt(v Visitor, n *pg_query.AlterDatabaseSetStmt) error
 	if n == nil {
 		return nil
 	}
-	//return walkNode(v, n.Setstmt)
-	return nil
+	return walkVariableSetStmt(v, n.Setstmt)
 }
 
 func walkAlterDatabaseStmt(v Visitor, n *pg_query.AlterDatabaseStmt) error {
@@ -169,9 +168,9 @@ func walkAlterDefaultPrivilegesStmt(v Visitor, n *pg_query.AlterDefaultPrivilege
 	if err := walkSlice(v, n.Options); err != nil {
 		return err
 	}
-	//if err := walkNode(v, n.Action); err != nil {
-	//	return err
-	//}
+	if err := walkGrantStmt(v, n.Action); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -250,9 +249,9 @@ func walkAlterObjectDependsStmt(v Visitor, n *pg_query.AlterObjectDependsStmt) e
 		return nil
 	}
 
-	//if walkNode(v, n.Relation); err != nil {
-	//	return err
-	//}
+	if err := walkRangeVar(v, n.Relation); err != nil {
+		return err
+	}
 	if err := walkNode(v, n.Object); err != nil {
 		return err
 	}
@@ -264,9 +263,9 @@ func walkAlterObjectSchemaStmt(v Visitor, n *pg_query.AlterObjectSchemaStmt) err
 		return nil
 	}
 
-	//if walkNode(v, n.Relation); err != nil {
-	//	return err
-	//}
+	if err := walkRangeVar(v, n.Relation); err != nil {
+		return err
+	}
 	if err := walkNode(v, n.Object); err != nil {
 		return err
 	}
@@ -292,9 +291,9 @@ func walkAlterOperatorStmt(v Visitor, n *pg_query.AlterOperatorStmt) error {
 		return nil
 	}
 
-	//if err := walkNode(v, n.Opername); err != nil {
-	//	return err
-	//}
+	if err := walkObjectWithArgs(v, n.Opername); err != nil {
+		return err
+	}
 	if err := walkSlice(v, n.Options); err != nil {
 		return err
 	}
@@ -306,9 +305,9 @@ func walkAlterSeqStmt(v Visitor, n *pg_query.AlterSeqStmt) error {
 		return nil
 	}
 
-	//if err := walkNode(v, n.Sequence); err != nil {
-	//	return err
-	//}
+	if err := walkRangeVar(v, n.Sequence); err != nil {
+		return err
+	}
 	if err := walkSlice(v, n.Options); err != nil {
 		return err
 	}
@@ -333,8 +332,7 @@ func walkAlterSystemStmt(v Visitor, n *pg_query.AlterSystemStmt) error {
 	if n == nil {
 		return nil
 	}
-	//return walkNode(v, n.Setstmt)
-	return nil
+	return walkVariableSetStmt(v, n.Setstmt)
 }
 
 func walkAlterTSConfigurationStmt(v Visitor, n *pg_query.AlterTSConfigurationStmt) error {
@@ -372,14 +370,7 @@ func walkAlterTableCmd(v Visitor, n *pg_query.AlterTableCmd) error {
 	if n == nil {
 		return nil
 	}
-
-	if err := walkNode(v, n.Def); err != nil {
-		return err
-	}
-	//if err := walkNode(n.Newowner); err != nil {
-	//	return err
-	//}
-	return nil
+	return walkNode(v, n.Def)
 }
 
 func walkAlterTableSpaceOptionsStmt(v Visitor, n *pg_query.AlterTableSpaceOptionsStmt) error {
@@ -394,9 +385,9 @@ func walkAlterTableStmt(v Visitor, n *pg_query.AlterTableStmt) error {
 		return nil
 	}
 
-	//if err := walkNode(n.Relation); err != nil {
-	//	return err
-	//}
+	if err := walkRangeVar(v, n.Relation); err != nil {
+		return err
+	}
 	if err := walkSlice(v, n.Cmds); err != nil {
 		return err
 	}
@@ -459,14 +450,6 @@ func walkBoolExpr(v Visitor, n *pg_query.BoolExpr) error {
 	return nil
 }
 
-func walkValue(v Visitor, n *pg_query.Boolean) error {
-	if n == nil {
-		return nil
-	}
-	//return walkNode(v, n.Boolval)
-	return nil
-}
-
 func walkCallStmt(v Visitor, n *pg_query.CallStmt) error {
 	if n == nil {
 		return nil
@@ -484,9 +467,9 @@ func walkCallStmt(v Visitor, n *pg_query.CallStmt) error {
 	if err := walkNode(v, n.Funccall.AggFilter); err != nil {
 		return err
 	}
-	//if err := walkNode(v, n.Funccall.Over); err != nil {
-	//	return err
-	//}
+	if err := walkWindowDef(v, n.Funccall.Over); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -538,8 +521,7 @@ func walkClusterStmt(v Visitor, n *pg_query.ClusterStmt) error {
 	if n == nil {
 		return nil
 	}
-	//return walkNode(v, n.Relation)
-	return nil
+	return walkRangeVar(v, n.Relation)
 }
 
 func walkCoalesceExpr(v Visitor, n *pg_query.CoalesceExpr) error {
@@ -624,18 +606,18 @@ func walkColumnDef(v Visitor, n *pg_query.ColumnDef) error {
 		return nil
 	}
 
-	//if err := walkNode(v, n.TypeName); err != nil {
-	//	return err
-	//}
+	if err := walkTypeName(v, n.TypeName); err != nil {
+		return err
+	}
 	if err := walkNode(v, n.RawDefault); err != nil {
 		return err
 	}
 	if err := walkNode(v, n.CookedDefault); err != nil {
 		return err
 	}
-	//if err := walkNode(v, n.CollClause); err != nil {
-	//	return err
-	//}
+	if err := walkCollateClause(v, n.CollClause); err != nil {
+		return err
+	}
 	if err := walkSlice(v, n.Constraints); err != nil {
 		return err
 	}
@@ -704,9 +686,9 @@ func walkConstraint(v Visitor, n *pg_query.Constraint) error {
 	if err := walkNode(v, n.WhereClause); err != nil {
 		return err
 	}
-	//if err := walkNode(v, n.Pktable); err != nil {
-	//	return err
-	//}
+	if err := walkRangeVar(v, n.Pktable); err != nil {
+		return err
+	}
 	if err := walkSlice(v, n.FkAttrs); err != nil {
 		return err
 	}
@@ -745,9 +727,9 @@ func walkCopyStmt(v Visitor, n *pg_query.CopyStmt) error {
 		return nil
 	}
 
-	//if err := walkNode(v, n.Relation); err != nil {
-	//	return err
-	//}
+	if err := walkRangeVar(v, n.Relation); err != nil {
+		return err
+	}
 	if err := walkNode(v, n.Query); err != nil {
 		return err
 	}
@@ -772,15 +754,15 @@ func walkCreateCastStmt(v Visitor, n *pg_query.CreateCastStmt) error {
 		return nil
 	}
 
-	//if err := walkNode(v, n.Sourcetype); err != nil {
-	//	return err
-	//}
-	//if err := walkNode(v, n.Targettype); err != nil {
-	//	return err
-	//}
-	//if err := walkNode(v, n.Func); err != nil {
-	//	return err
-	//}
+	if err := walkTypeName(v, n.Sourcetype); err != nil {
+		return err
+	}
+	if err := walkTypeName(v, n.Targettype); err != nil {
+		return err
+	}
+	if err := walkObjectWithArgs(v, n.Func); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -806,12 +788,12 @@ func walkCreateDomainStmt(v Visitor, n *pg_query.CreateDomainStmt) error {
 	if err := walkSlice(v, n.Domainname); err != nil {
 		return err
 	}
-	//if err := walkNode(v, n.TypeName); err != nil {
-	//	return err
-	//}
-	//if err := walkNode(v, n.CollClause); err != nil {
-	//	return err
-	//}
+	if err := walkTypeName(v, n.TypeName); err != nil {
+		return err
+	}
+	if err := walkCollateClause(v, n.CollClause); err != nil {
+		return err
+	}
 	if err := walkSlice(v, n.Constraints); err != nil {
 		return err
 	}
@@ -876,9 +858,9 @@ func walkCreateFunctionStmt(v Visitor, n *pg_query.CreateFunctionStmt) error {
 	if err := walkSlice(v, n.Parameters); err != nil {
 		return err
 	}
-	//if err := walkNode(v, n.ReturnType); err != nil {
-	//	return err
-	//}
+	if err := walkTypeName(v, n.ReturnType); err != nil {
+		return err
+	}
 	if err := walkSlice(v, n.Options); err != nil {
 		return err
 	}
@@ -890,18 +872,18 @@ func walkCreateOpClassItem(v Visitor, n *pg_query.CreateOpClassItem) error {
 		return nil
 	}
 
-	//if err := walkNode(v, n.Name); err != nil {
-	//	return err
-	//}
+	if err := walkObjectWithArgs(v, n.Name); err != nil {
+		return err
+	}
 	if err := walkSlice(v, n.OrderFamily); err != nil {
 		return err
 	}
 	if err := walkSlice(v, n.ClassArgs); err != nil {
 		return err
 	}
-	//if err := walkNode(v, n.Storedtype); err != nil {
-	//	return err
-	//}
+	if err := walkTypeName(v, n.Storedtype); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -916,9 +898,9 @@ func walkCreateOpClassStmt(v Visitor, n *pg_query.CreateOpClassStmt) error {
 	if err := walkSlice(v, n.Opfamilyname); err != nil {
 		return err
 	}
-	//if err := walkNode(v, n.Datatype); err != nil {
-	//	return err
-	//}
+	if err := walkTypeName(v, n.Datatype); err != nil {
+		return err
+	}
 	if err := walkSlice(v, n.Items); err != nil {
 		return err
 	}
@@ -1002,24 +984,24 @@ func walkCreateStmt(v Visitor, n *pg_query.CreateStmt) error {
 		return nil
 	}
 
-	//if err := walkNode(v, n.Relation); err != nil {
-	//	return err
-	//}
+	if err := walkRangeVar(v, n.Relation); err != nil {
+		return err
+	}
 	if err := walkSlice(v, n.TableElts); err != nil {
 		return err
 	}
 	if err := walkSlice(v, n.InhRelations); err != nil {
 		return err
 	}
-	//if err := walkNode(v, n.Partbound); err != nil {
-	//	return err
-	//}
-	//if err := walkNode(v, n.Partspec); err != nil {
-	//	return err
-	//}
-	//if err := walkNode(v, n.OfTypename); err != nil {
-	//	return err
-	//}
+	if err := walkPartitionBoundSpec(v, n.Partbound); err != nil {
+		return err
+	}
+	if err := walkPartitionSpec(v, n.Partspec); err != nil {
+		return err
+	}
+	if err := walkTypeName(v, n.OfTypename); err != nil {
+		return err
+	}
 	if err := walkSlice(v, n.Constraints); err != nil {
 		return err
 	}
@@ -1051,9 +1033,9 @@ func walkCreateTableAsStmt(v Visitor, n *pg_query.CreateTableAsStmt) error {
 	if err := walkNode(v, n.Query); err != nil {
 		return err
 	}
-	//if err := walkNode(v, n.Into); err != nil {
-	//	return err
-	//}
+	if err := walkIntoClause(v, n.Into); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -1062,18 +1044,15 @@ func walkCreateTransformStmt(v Visitor, n *pg_query.CreateTransformStmt) error {
 		return nil
 	}
 
-	//if err := walkNode(v, n.TypeName); err != nil {
-	//	return err
-	//}
-	//if err := walkNode(v, n.Lang); err != nil {
-	//	return err
-	//}
-	//if err := walkNode(v, n.Fromsql); err != nil {
-	//	return err
-	//}
-	//if err := walkNode(v, n.Tosql); err != nil {
-	//	return err
-	//}
+	if err := walkTypeName(v, n.TypeName); err != nil {
+		return err
+	}
+	if err := walkObjectWithArgs(v, n.Fromsql); err != nil {
+		return err
+	}
+	if err := walkObjectWithArgs(v, n.Tosql); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -1150,6 +1129,9 @@ func walkDeleteStmt(v Visitor, n *pg_query.DeleteStmt) error {
 		return nil
 	}
 
+	if err := walkRangeVar(v, n.Relation); err != nil {
+		return err
+	}
 	if err := walkSlice(v, n.UsingClause); err != nil {
 		return err
 	}
@@ -1159,9 +1141,9 @@ func walkDeleteStmt(v Visitor, n *pg_query.DeleteStmt) error {
 	if err := walkSlice(v, n.ReturningList); err != nil {
 		return err
 	}
-	//if err := walkNode(v, n.WithClause); err != nil {
-	//	return err
-	//}
+	if err := walkWithClause(v, n.WithClause); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -1265,10 +1247,23 @@ func walkFuncCall(v Visitor, n *pg_query.FuncCall) error {
 	if err := walkNode(v, n.AggFilter); err != nil {
 		return err
 	}
+	if err := walkWindowDef(v, n.Over); err != nil {
+		return err
+	}
+	return nil
+}
 
-	//if err := walkNode(v, n.Over); err != nil {
-	//	return err
-	//}
+func walkFuncExpr(v Visitor, n *pg_query.FuncExpr) error {
+	if n == nil {
+		return nil
+	}
+
+	if err := walkNode(v, n.Xpr); err != nil {
+		return err
+	}
+	if err := walkSlice(v, n.Args); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -1277,10 +1272,27 @@ func walkFunctionParameter(v Visitor, n *pg_query.FunctionParameter) error {
 		return nil
 	}
 
-	//if err := walkNode(v, n.ArgType); err != nil {
-	//	return err
-	//}
+	if err := walkTypeName(v, n.ArgType); err != nil {
+		return err
+	}
 	if err := walkNode(v, n.Defexpr); err != nil {
+		return err
+	}
+	return nil
+}
+
+func walkGrantStmt(v Visitor, n *pg_query.GrantStmt) error {
+	if n == nil {
+		return nil
+	}
+
+	if err := walkSlice(v, n.Objects); err != nil {
+		return err
+	}
+	if err := walkSlice(v, n.Privileges); err != nil {
+		return err
+	}
+	if err := walkSlice(v, n.Grantees); err != nil {
 		return err
 	}
 	return nil
@@ -1331,9 +1343,9 @@ func walkIndexStmt(v Visitor, n *pg_query.IndexStmt) error {
 	if n == nil {
 		return nil
 	}
-	//if err := walkNode(v, n.Relation); err != nil {
-	//	return err
-	//}
+	if err := walkRangeVar(v, n.Relation); err != nil {
+		return err
+	}
 	if err := walkSlice(v, n.IndexParams); err != nil {
 		return err
 	}
@@ -1383,32 +1395,24 @@ func walkInsertStmt(v Visitor, n *pg_query.InsertStmt) error {
 		return nil
 	}
 
-	//if err := walkNode(v, n.Relation); err != nil {
-	//	return err
-	//}
+	if err := walkRangeVar(v, n.Relation); err != nil {
+		return err
+	}
 	if err := walkSlice(v, n.Cols); err != nil {
 		return err
 	}
 	if err := walkNode(v, n.SelectStmt); err != nil {
 		return err
 	}
-	//if err := walkNode(v, n.OnConflictClause); err != nil {
-	//	return err
-	//}
+	if err := walkOnConflictClause(v, n.OnConflictClause); err != nil {
+		return err
+	}
 	if err := walkSlice(v, n.ReturningList); err != nil {
 		return err
 	}
-	//if err := walkNode(v, n.WithClause); err != nil {
-	//	return err
-	//}
-	return nil
-}
-
-func walkInteger(v Visitor, n *pg_query.Integer) error {
-	if n == nil {
-		return nil
+	if err := walkWithClause(v, n.WithClause); err != nil {
+		return err
 	}
-	//return walkNode(v, n.Ival)
 	return nil
 }
 
@@ -1417,9 +1421,9 @@ func walkIntoClause(v Visitor, n *pg_query.IntoClause) error {
 		return nil
 	}
 
-	//if err := walkNode(v, n.Rel); err != nil {
-	//	return err
-	//}
+	if err := walkRangeVar(v, n.Rel); err != nil {
+		return err
+	}
 	if err := walkSlice(v, n.ColNames); err != nil {
 		return err
 	}
@@ -1447,12 +1451,12 @@ func walkJoinExpr(v Visitor, n *pg_query.JoinExpr) error {
 	if err := walkSlice(v, n.UsingClause); err != nil {
 		return err
 	}
-	//if err := walkNode(v, n.Quals); err != nil {
-	//	return err
-	//}
-	//if err := walkNode(v, n.Alias); err != nil {
-	//	return err
-	//}
+	if err := walkNode(v, n.Quals); err != nil {
+		return err
+	}
+	if err := walkAlias(v, n.Alias); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -1544,9 +1548,9 @@ func walkOnConflictClause(v Visitor, n *pg_query.OnConflictClause) error {
 	if n == nil {
 		return nil
 	}
-	//if err := walkNode(v, n.Infer); err != nil {
-	//	return err
-	//}
+	if err := walkInferClause(v, n.Infer); err != nil {
+		return err
+	}
 	if err := walkSlice(v, n.TargetList); err != nil {
 		return err
 	}
@@ -1601,6 +1605,30 @@ func walkParam(v Visitor, n *pg_query.Param) error {
 
 }
 
+func walkPartitionBoundSpec(v Visitor, n *pg_query.PartitionBoundSpec) error {
+	if n == nil {
+		return nil
+	}
+
+	if err := walkSlice(v, n.Listdatums); err != nil {
+		return err
+	}
+	if err := walkSlice(v, n.Lowerdatums); err != nil {
+		return err
+	}
+	if err := walkSlice(v, n.Upperdatums); err != nil {
+		return err
+	}
+	return nil
+}
+
+func walkPartitionSpec(v Visitor, n *pg_query.PartitionSpec) error {
+	if n == nil {
+		return nil
+	}
+	return walkSlice(v, n.PartParams)
+}
+
 func walkPrepareStmt(v Visitor, n *pg_query.PrepareStmt) error {
 	if n == nil {
 		return nil
@@ -1626,18 +1654,18 @@ func walkQuery(v Visitor, n *pg_query.Query) error {
 	if err := walkSlice(v, n.CteList); err != nil {
 		return err
 	}
-	//if err := walkSlice(v, n.Rtable); err != nil {
-	//	return err
-	//}
-	//if err := walkNode(v, n.Jointree); err != nil {
-	//	return err
-	//}
-	//if err := walkSlice(v, n.TargetList); err != nil {
-	//	return err
-	//}
-	//if err := walkNode(v, n.OnConflict); err != nil {
-	//	return err
-	//}
+	if err := walkSlice(v, n.Rtable); err != nil {
+		return err
+	}
+	if err := walkFromExpr(v, n.Jointree); err != nil {
+		return err
+	}
+	if err := walkSlice(v, n.TargetList); err != nil {
+		return err
+	}
+	if err := walkOnConflictExpr(v, n.OnConflict); err != nil {
+		return err
+	}
 	if err := walkSlice(v, n.ReturningList); err != nil {
 		return err
 	}
@@ -1685,12 +1713,12 @@ func walkRangeFunction(v Visitor, n *pg_query.RangeFunction) error {
 		return nil
 	}
 
-	//if err := walkNode(v, n.Functions); err != nil {
-	//	return err
-	//}
-	//if err := walkNode(v, n.Alias); err != nil {
-	//	return err
-	//}
+	if err := walkSlice(v, n.Functions); err != nil {
+		return err
+	}
+	if err := walkAlias(v, n.Alias); err != nil {
+		return err
+	}
 	if err := walkSlice(v, n.Coldeflist); err != nil {
 		return err
 	}
@@ -1705,9 +1733,9 @@ func walkRangeSubselect(v Visitor, n *pg_query.RangeSubselect) error {
 	if err := walkNode(v, n.Subquery); err != nil {
 		return err
 	}
-	//if err := walkNode(v, n.Alias); err != nil {
-	//	return err
-	//}
+	if err := walkAlias(v, n.Alias); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -1728,9 +1756,9 @@ func walkRangeTableFunc(v Visitor, n *pg_query.RangeTableFunc) error {
 	if err := walkSlice(v, n.Columns); err != nil {
 		return err
 	}
-	//if err := walkSlice(v, n.Alias); err != nil {
-	//	return err
-	//}
+	if err := walkAlias(v, n.Alias); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -1739,9 +1767,9 @@ func walkRangeTableFuncCol(v Visitor, n *pg_query.RangeTableFuncCol) error {
 		return nil
 	}
 
-	//if err := walkNode(v, n.TypeName); err != nil {
-	//	return err
-	//}
+	if err := walkTypeName(v, n.TypeName); err != nil {
+		return err
+	}
 	if err := walkNode(v, n.Colexpr); err != nil {
 		return err
 	}
@@ -1759,9 +1787,9 @@ func walkRangeTableSample(v Visitor, n *pg_query.RangeTableSample) error {
 	if err := walkNode(v, n.Relation); err != nil {
 		return err
 	}
-	//if err := walkNode(v, n.Method); err != nil {
-	//	return err
-	//}
+	if err := walkSlice(v, n.Method); err != nil {
+		return err
+	}
 	if err := walkSlice(v, n.Args); err != nil {
 		return err
 	}
@@ -1775,21 +1803,21 @@ func walkRangeTblEntry(v Visitor, n *pg_query.RangeTblEntry) error {
 	if n == nil {
 		return nil
 	}
-	//if err := walkNode(v, n.Tablesample); err != nil {
-	//	return err
-	//}
-	//if err := walkNode(v, n.Subquery); err != nil {
-	//	return err
-	//}
+	if err := walkTableSampleClause(v, n.Tablesample); err != nil {
+		return err
+	}
+	if err := walkQuery(v, n.Subquery); err != nil {
+		return err
+	}
 	if err := walkSlice(v, n.Joinaliasvars); err != nil {
 		return err
 	}
 	if err := walkSlice(v, n.Functions); err != nil {
 		return err
 	}
-	//if err := walkNode(v, n.Tablefunc); err != nil {
-	//	return err
-	//}
+	if err := walkTableFunc(v, n.Tablefunc); err != nil {
+		return err
+	}
 	if err := walkSlice(v, n.ValuesLists); err != nil {
 		return err
 	}
@@ -1806,6 +1834,12 @@ func walkRangeTblEntry(v Visitor, n *pg_query.RangeTblEntry) error {
 		return err
 	}
 	if err := walkSlice(v, n.Colcollations); err != nil {
+		return err
+	}
+	if err := walkAlias(v, n.Alias); err != nil {
+		return err
+	}
+	if err := walkAlias(v, n.Eref); err != nil {
 		return err
 	}
 	if err := walkSlice(v, n.SecurityQuals); err != nil {
@@ -1848,16 +1882,14 @@ func walkRefreshMatViewStmt(v Visitor, n *pg_query.RefreshMatViewStmt) error {
 	if n == nil {
 		return nil
 	}
-	//return walkNode(v, n.Relation)
-	return nil
+	return walkRangeVar(v, n.Relation)
 }
 
 func walkReindexStmt(v Visitor, n *pg_query.ReindexStmt) error {
 	if n == nil {
 		return nil
 	}
-	//return walkNode(v, n.Relation)
-	return nil
+	return walkRangeVar(v, n.Relation)
 }
 
 func walkRelabelType(v Visitor, n *pg_query.RelabelType) error {
@@ -1879,9 +1911,9 @@ func walkRenameStmt(v Visitor, n *pg_query.RenameStmt) error {
 		return nil
 	}
 
-	//if err := walkNode(v, n.Relation); err != nil {
-	//	return err
-	//}
+	if err := walkRangeVar(v, n.Relation); err != nil {
+		return err
+	}
 	if err := walkNode(v, n.Object); err != nil {
 		return err
 	}
@@ -1950,9 +1982,9 @@ func walkRuleStmt(v Visitor, n *pg_query.RuleStmt) error {
 		return nil
 	}
 
-	//if err := walkNode(v, n.Relation); err != nil {
-	//	return err
-	//}
+	if err := walkRangeVar(v, n.Relation); err != nil {
+		return err
+	}
 	if err := walkNode(v, n.WhereClause); err != nil {
 		return err
 	}
@@ -1998,9 +2030,9 @@ func walkSelectStmt(v Visitor, n *pg_query.SelectStmt) error {
 	if err := walkSlice(v, n.DistinctClause); err != nil {
 		return err
 	}
-	//if err := walkNode(v, n.IntoClause); err != nil {
-	//	return err
-	//}
+	if err := walkIntoClause(v, n.IntoClause); err != nil {
+		return err
+	}
 	if err := walkSlice(v, n.TargetList); err != nil {
 		return err
 	}
@@ -2034,15 +2066,15 @@ func walkSelectStmt(v Visitor, n *pg_query.SelectStmt) error {
 	if err := walkSlice(v, n.LockingClause); err != nil {
 		return err
 	}
-	//if err := walkNode(v, n.WithClause); err != nil {
-	//	return err
-	//}
-	//if err := walkNode(v, n.Larg); err != nil {
-	//	return err
-	//}
-	//if err := walkNode(v, n.Rarg); err != nil {
-	//	return err
-	//}
+	if err := walkWithClause(v, n.WithClause); err != nil {
+		return err
+	}
+	if err := walkSelectStmt(v, n.Larg); err != nil {
+		return err
+	}
+	if err := walkSelectStmt(v, n.Rarg); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -2181,8 +2213,7 @@ func walkTableLikeClause(v Visitor, n *pg_query.TableLikeClause) error {
 	if n == nil {
 		return nil
 	}
-	//return walkNode(v, n.Relation)
-	return nil
+	return walkRangeVar(v, n.Relation)
 }
 
 func walkTableSampleClause(v Visitor, n *pg_query.TableSampleClause) error {
@@ -2235,9 +2266,9 @@ func walkTypeCast(v Visitor, n *pg_query.TypeCast) error {
 	if err := walkNode(v, n.Arg); err != nil {
 		return err
 	}
-	//if err := walkNode(v, n.TypeName); err != nil {
-	//	return err
-	//}
+	if err := walkTypeName(v, n.TypeName); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -2285,23 +2316,9 @@ func walkUpdateStmt(v Visitor, n *pg_query.UpdateStmt) error {
 	if err := walkSlice(v, n.ReturningList); err != nil {
 		return err
 	}
-	//if err := walkNode(v, n.WithClause); err != nil {
-	//	return err
-	//}
-	return nil
-}
-
-func walkVacuumStmt(v Visitor, n *pg_query.VacuumStmt) error {
-	if n == nil {
-		return nil
+	if err := walkWithClause(v, n.WithClause); err != nil {
+		return err
 	}
-
-	//if err := walkNode(v, n.Relation); err != nil {
-	//	return err
-	//}
-	//if err := walkSlice(v, n.VaCols); err != nil {
-	//	return err
-	//}
 	return nil
 }
 
@@ -2324,9 +2341,9 @@ func walkViewStmt(v Visitor, n *pg_query.ViewStmt) error {
 		return nil
 	}
 
-	//if err := walkNode(v, n.View); err != nil {
-	//	return err
-	//}
+	if err := walkRangeVar(v, n.View); err != nil {
+		return err
+	}
 	if err := walkSlice(v, n.Aliases); err != nil {
 		return err
 	}
@@ -2438,9 +2455,9 @@ func walkXmlSerialize(v Visitor, n *pg_query.XmlSerialize) error {
 	if err := walkNode(v, n.Expr); err != nil {
 		return err
 	}
-	//if err := walkNode(v, n.TypeName); err != nil {
-	//	return err
-	//}
+	if err := walkTypeName(v, n.TypeName); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -2468,7 +2485,8 @@ func walkNode(v Visitor, node *pg_query.Node) error {
 		return walkA_ArrayExpr(v, n.AArrayExpr)
 
 	case *pg_query.Node_AConst:
-		//return walkNode(v, n.AConst)
+		// Handled by Visitor.
+		return nil
 
 	case *pg_query.Node_AExpr:
 		return walkA_Expr(v, n.AExpr)
@@ -2732,13 +2750,13 @@ func walkNode(v Visitor, node *pg_query.Node) error {
 		return walkFuncCall(v, n.FuncCall)
 
 	case *pg_query.Node_FuncExpr:
-		//return walkGroupingFunc(v, n.FuncExpr)
+		return walkFuncExpr(v, n.FuncExpr)
 
 	case *pg_query.Node_FunctionParameter:
 		return walkFunctionParameter(v, n.FunctionParameter)
 
 	case *pg_query.Node_GroupingFunc:
-		//return walkGroupingFunc(n.GroupingFunc)
+		return walkGroupingFunc(v, n.GroupingFunc)
 
 	case *pg_query.Node_GroupingSet:
 		return walkGroupingSet(v, n.GroupingSet)
@@ -2783,7 +2801,7 @@ func walkNode(v Visitor, node *pg_query.Node) error {
 		return walkNamedArgExpr(v, n.NamedArgExpr)
 
 	case *pg_query.Node_NextValueExpr:
-		//return walkNextValueExpr(n.NextValueExpr)
+		return walkNextValueExpr(v, n.NextValueExpr)
 
 	case *pg_query.Node_NullTest:
 		return walkNullTest(v, n.NullTest)
@@ -2910,9 +2928,6 @@ func walkNode(v Visitor, node *pg_query.Node) error {
 
 	case *pg_query.Node_UpdateStmt:
 		return walkUpdateStmt(v, n.UpdateStmt)
-
-	case *pg_query.Node_VacuumStmt:
-		return walkVacuumStmt(v, n.VacuumStmt)
 
 	case *pg_query.Node_Var:
 		return walkVar(v, n.Var)
