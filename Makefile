@@ -86,7 +86,7 @@ fmt-check:
 
 .PHONY: test
 test: ## Run unit tests.
-test: envtest fmt vet
+test: fmt vet
 	${GO} test ./... -cover -v -ginkgo.v -coverprofile=coverage.out
 
 .PHONY: test-simple
