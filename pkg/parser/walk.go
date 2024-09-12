@@ -1,8 +1,6 @@
 package parser
 
 import (
-	"fmt"
-
 	pg_query "github.com/pganalyze/pg_query_go/v5"
 )
 
@@ -2470,7 +2468,7 @@ func Walk(v Visitor, node *pg_query.Node) error {
 
 func walkNode(v Visitor, node *pg_query.Node) error {
 	if node == nil || node.Node == nil {
-		return fmt.Errorf("Invalid input node")
+		return nil
 	}
 
 	// Visit the node itself
@@ -2820,6 +2818,10 @@ func walkNode(v Visitor, node *pg_query.Node) error {
 
 	case *pg_query.Node_Param:
 		return walkParam(v, n.Param)
+
+	case *pg_query.Node_ParamRef:
+		// Handle from Visitor
+		return nil
 
 	case *pg_query.Node_PrepareStmt:
 		return walkPrepareStmt(v, n.PrepareStmt)
