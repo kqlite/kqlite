@@ -2819,10 +2819,6 @@ func walkNode(v Visitor, node *pg_query.Node) error {
 	case *pg_query.Node_Param:
 		return walkParam(v, n.Param)
 
-	case *pg_query.Node_ParamRef:
-		// Handle from Visitor
-		return nil
-
 	case *pg_query.Node_PrepareStmt:
 		return walkPrepareStmt(v, n.PrepareStmt)
 
@@ -2849,6 +2845,9 @@ func walkNode(v Visitor, node *pg_query.Node) error {
 
 	case *pg_query.Node_RangeTblFunction:
 		return walkRangeTblFunction(v, n.RangeTblFunction)
+
+	case *pg_query.Node_RangeVar:
+		return walkRangeVar(v, n.RangeVar)
 
 	case *pg_query.Node_RawStmt:
 		return walkRawStmt(v, n.RawStmt)
