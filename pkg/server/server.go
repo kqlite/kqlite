@@ -420,10 +420,10 @@ func (s *Server) handleParseMessage(ctx context.Context, c *Conn, pmsg *pgproto3
 
 		case *pgproto3.Sync:
 			if (msgState != pgproto3.Describe{}) && (msgState.ObjectType == 0x53) {
-				if argCount, err := parser.QueryArgsCount(query); err != nil {
+				if result, err := parser.Parse(query); err != nil {
 					return err
 				} else {
-					params := make([]uint32, argCount)
+					params := make([]uint32, len(result[0].Args))
 					for idx := range params {
 						params[idx] = pgtype.TextOID
 					}

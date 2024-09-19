@@ -1,82 +1,127 @@
 package parser
 
 import (
-	//"fmt"
-	"regexp"
-	"strings"
+	pg_query "github.com/pganalyze/pg_query_go/v5"
 )
 
-var sqliteOperators = []string{
-	"\\||", "->", "->>",
-	"\\*", "/", "%", "\\+", "-",
-	"\\|", "&", "<<", ">>",
-	"<", ">", "<=", ">=", "=", "==", "<>", "!=", "IS", "IS NOT",
-	"IN", "MATCH", "LIKE",
-	"NOT", "AND", "OR",
+type parserStmtWalker struct {
+	result ParserStmtResult
+	// For SELECT, DELETE and UPDATE statements arguments are extracted from the SQL query expressions.
+	exprLocation  int      // Unique Location of the expression found in the SQL statement.
+	exprColumns   []string // Expression columns extracted.
+	insertStmt    bool     // Unique location of the INSERT statement.
+	insertColumns []string // INSERT statement columns extracted.
+	updateStmt    bool     // Unique location of the UPDATE statement.
 }
 
-var (
-	exprRegex = regexp.MustCompile(`\((.*?)\)\s*(` + strings.Join(sqliteOperators, "|") + `)\s*\?`)
-
-	paramsRegex = regexp.MustCompile(`\((.*?)\)\s*(` + strings.Join(sqliteOperators, "|") + `)\s*\?`)
-
-	insertIntoValuesRegex = regexp.MustCompile(`^INSERT(\s+)INTO\s+(\S+)\s+\((.*?)\)\s+VALUES`)
-
-	insertIntoRegex = regexp.MustCompile(`^INSERT(\s+)INTO\s+(\S+)\s+VALUES`)
-)
-
-func IsSelectStatement(st string) bool {
-	return strings.HasPrefix(strings.ToUpper(st), "SELECT")
+type ParserStmtResult struct {
+	Args   []string // Statement params/arguments.
+	Tables []string // Tables referenced in the statement.
 }
 
-func IsInsertStament(st string) bool {
-	return strings.HasPrefix(strings.ToUpper(st), "INSERT")
-}
-
-// Get the list of parameter names (table fields) from every prepared statements in a SQL program.
-func GetPreparedParams(sql string) ([][]string, error) {
-	var err error
-	params := [][]string{}
-
-	stms := strings.Split(sql, ";")
-	if len(stms) == 0 {
-		stms = append(stms, sql)
-	}
-	for _, st := range stms {
-		// parse statement and extract params
-		statementParams := []string{}
-		if IsInsertStament(st) {
-			//statementParams, err = getInsertParams(sql)
-		} else {
-			statementParams, err = getStatementParams(sql)
+func (walker *parserStmtWalker) getTableName(rangevar *pg_query.RangeVar) {
+	if rangevar != nil {
+		relname := rangevar.GetRelname()
+		if relname != "" {
+			walker.result.Tables = append(walker.result.Tables, relname)
 		}
-		if err != nil {
-			return params, err
-		}
-		params = append(params, statementParams)
 	}
-	return params, err
 }
 
-// Stub func
-func QueryArgsCount(query string) (int, error) {
-	return 2, nil
+func (walker *parserStmtWalker) Visit(node *pg_query.Node) (v Visitor, err error) {
+	switch n := node.Node.(type) {
+	case *pg_query.Node_InsertStmt:
+		walker.insertStmt = true
+		walker.getTableName(n.InsertStmt.GetRelation())
+		break
+	case *pg_query.Node_DeleteStmt:
+		walker.getTableName(n.DeleteStmt.GetRelation())
+		break
+	case *pg_query.Node_UpdateStmt:
+		walker.updateStmt = true
+		walker.getTableName(n.UpdateStmt.GetRelation())
+		break
+	case *pg_query.Node_RangeVar:
+		walker.getTableName(n.RangeVar)
+		break
+	case *pg_query.Node_AExpr:
+		// Found expression in the SQL query, init relevant fields.
+		if walker.exprLocation == 0 {
+			walker.exprLocation = int(n.AExpr.GetLocation())
+		}
+		break
+	case *pg_query.Node_ColumnRef:
+		if walker.exprLocation != 0 {
+			// Collect referenced columns/fields from current expression.
+			fields := n.ColumnRef.GetFields()
+			for _, fieldn := range fields {
+				if fieldn == nil || fieldn.Node == nil {
+					continue
+				}
+				field, ok := fieldn.Node.(*pg_query.Node_String_)
+				if ok && field != nil {
+					walker.exprColumns = append(walker.exprColumns, field.String_.GetSval())
+				}
+			}
+			break
+		}
+	case *pg_query.Node_ParamRef:
+		if walker.exprLocation != 0 && len(walker.exprColumns) != 0 {
+			walker.result.Args = append(walker.result.Args, walker.exprColumns[len(walker.exprColumns)-1])
+			break
+		}
+		if walker.insertStmt && len(walker.insertColumns) != 0 {
+			// Check if column has a corresponding parameter entry in expression.
+			number := n.ParamRef.GetNumber()
+			if len(walker.insertColumns) >= int(number) {
+				walker.result.Args = append(walker.result.Args, walker.insertColumns[number-1])
+			}
+			break
+		}
+	case *pg_query.Node_ResTarget:
+		if walker.insertStmt {
+			name := n.ResTarget.GetName()
+			if name != "" {
+				walker.insertColumns = append(walker.insertColumns, name)
+			}
+			break
+		}
+	}
+	return walker, err
 }
 
-// Parses an expression part of a SQL statement and returns the list of table fields that are used in the expression.
-// Useful when in a prepared statement a parameter is evaluated against an expression.
-//func parseExpression(expr string) ([]string, error) {
-//}
+func (walker *parserStmtWalker) VisitEnd(node *pg_query.Node) error {
+	switch n := node.Node.(type) {
+	case *pg_query.Node_AExpr:
+		// Clear expression info on node exit.
+		if walker.exprLocation == int(n.AExpr.GetLocation()) {
+			walker.exprLocation = 0
+			walker.exprColumns = []string{}
+		}
+	}
+	return nil
+}
 
-// Extract a list of parameters (table fields) from a SELECT, UPDATE or DELETE prepared statement.
-func getStatementParams(sql string) ([]string, error) {
-	var p []string
+// Parse a SQL query string, can have multiple statements.
+func Parse(sql string) ([]ParserStmtResult, error) {
+	var result []ParserStmtResult
 	if sql == "" {
-		return p, nil
+		return result, nil
 	}
-	return p, nil
-}
 
-// Extract a list of parameters (table fields) from a INSERT prepared statement.
-//func getInsertParams(sql string) ([]string, error) {
-//}
+	tree, err := pg_query.Parse(sql)
+	if err != nil {
+		return result, nil
+	}
+
+	for _, raw := range tree.Stmts {
+		if st := raw.GetStmt(); st != nil {
+			walker := &parserStmtWalker{}
+			if err := Walk(walker, st); err != nil {
+				return result, err
+			}
+			result = append(result, walker.result)
+		}
+	}
+	return result, nil
+}
