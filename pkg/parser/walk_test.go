@@ -1,8 +1,6 @@
 package parser_test
 
 import (
-	"fmt"
-
 	"github.com/kqlite/kqlite/pkg/parser"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -13,74 +11,72 @@ import (
 
 var _ = Describe("Walker tests", Ordered, func() {
 
-	It("Walk Simple Select statement", func() {
-		qv := &TestWalker{}
-		foundSelect := false
-		sql := `SELECT first_name, age FROM employees WHERE income = $1`
+	It("Walk SELECT statement", func() {
+		walker := &TestWalker{}
+		var foundSelect, foundSourceTable bool
+		var foundExpr, foundResultTarget int
+		sql := `SELECT name, age FROM employees WHERE income = $1`
 
 		tree, err := pg_query.Parse(sql)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tree).NotTo(BeNil())
 
-		By("Verify Select statement is present", func() {
-			qv.VisitFn = func(node *pg_query.Node) (v parser.Visitor, err error) {
-				switch n := node.Node.(type) {
-				case *pg_query.Node_SelectStmt:
-					if n != nil {
-						foundSelect = true
-					}
-				}
-				return qv, nil
-			}
-
-			for _, raw := range tree.Stmts {
-				st := raw.GetStmt()
-				Expect(st).NotTo(BeNil())
-				Expect(parser.Walk(qv, st)).NotTo(HaveOccurred())
-			}
-			Expect(foundSelect).To(BeTrue())
-		})
-
-		By("Extract parameter from a simple query expression", func() {
-			exprLoc := 0
-			exprName := ""
-			foundColumnref := false
-			columns := []string{}
-			qv.VisitFn = func(node *pg_query.Node) (v parser.Visitor, err error) {
-				switch n := node.Node.(type) {
-				case *pg_query.Node_SelectStmt:
+		walker.VisitFn = func(node *pg_query.Node) (v parser.Visitor, err error) {
+			switch n := node.Node.(type) {
+			case *pg_query.Node_SelectStmt:
+				if n != nil {
 					foundSelect = true
-				case *pg_query.Node_AExpr:
-					exprLoc = int(n.AExpr.GetLocation())
-				case *pg_query.Node_ColumnRef:
-					if exprLoc != 0 && exprName != "" {
-						foundColumnref = true
-					}
-				case *pg_query.Node_String_:
-					if exprLoc != 0 && exprName == "" {
-						// extract expression name
-						exprName = n.String_.GetSval()
-					} else if foundColumnref {
-						// extract columns from expression
-						columns = append(columns, n.String_.GetSval())
-					}
-				case *pg_query.Node_ParamRef:
-					// TODO
 				}
-				return qv, nil
+			case *pg_query.Node_AExpr:
+				foundExpr++
+			case *pg_query.Node_ResTarget:
+				foundResultTarget++
+			case *pg_query.Node_RangeVar:
+				foundSourceTable = true
 			}
+			return walker, nil
+		}
+		for _, raw := range tree.Stmts {
+			st := raw.GetStmt()
+			Expect(st).NotTo(BeNil())
+			Expect(parser.Walk(walker, st)).NotTo(HaveOccurred())
+		}
+		Expect(foundSelect).To(BeTrue())
+		Expect(foundSourceTable).To(BeTrue())
+		Expect(foundExpr).To(Equal(1))
+		Expect(foundResultTarget).To(Equal(2))
+	})
 
-			for _, raw := range tree.Stmts {
-				st := raw.GetStmt()
-				Expect(st).NotTo(BeNil())
-				Expect(parser.Walk(qv, st)).NotTo(HaveOccurred())
+	It("Walk INSERT statement", func() {
+		walker := &TestWalker{}
+		var foundInsert bool
+		var foundColumnTarget int
+		sql := `INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+				values("one", "two", "three", "four", "five", "six", "seven", "eight")`
+
+		tree, err := pg_query.Parse(sql)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(tree).NotTo(BeNil())
+
+		walker.VisitFn = func(node *pg_query.Node) (v parser.Visitor, err error) {
+			switch n := node.Node.(type) {
+			case *pg_query.Node_SelectStmt:
+				if n != nil {
+					foundInsert = true
+				}
+			case *pg_query.Node_ResTarget:
+				foundColumnTarget++
 			}
-			Expect(foundSelect).To(BeTrue())
-			Expect(columns).NotTo(BeEmpty())
-			Expect(columns).To(HaveLen(1))
-			Expect(exprName).NotTo(Equal(""))
-			Expect(exprLoc).NotTo(BeZero())
-			fmt.Printf("%s, %d, %+v\n", exprName, exprLoc, columns)
-		})
+			return walker, nil
+		}
+
+		for _, raw := range tree.Stmts {
+			st := raw.GetStmt()
+			Expect(st).NotTo(BeNil())
+			Expect(parser.Walk(walker, st)).NotTo(HaveOccurred())
+		}
+		Expect(foundInsert).To(BeTrue())
+		Expect(foundColumnTarget).To(Equal(8))
+
 	})
 })

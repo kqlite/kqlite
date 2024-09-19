@@ -19,16 +19,16 @@ type TestWalker struct {
 	VisitEndFn OnVisitEndFn
 }
 
-func (tw *TestWalker) Visit(node *pg_query.Node) (v parser.Visitor, err error) {
-	if tw.VisitFn != nil {
-		return tw.VisitFn(node)
+func (walker *TestWalker) Visit(node *pg_query.Node) (v parser.Visitor, err error) {
+	if walker.VisitFn != nil {
+		return walker.VisitFn(node)
 	}
-	return tw, nil
+	return walker, nil
 }
 
-func (tw *TestWalker) VisitEnd(node *pg_query.Node) error {
-	if tw.VisitEndFn != nil {
-		return tw.VisitEndFn(node)
+func (walker *TestWalker) VisitEnd(node *pg_query.Node) error {
+	if walker.VisitEndFn != nil {
+		return walker.VisitEndFn(node)
 	}
 	return nil
 }
