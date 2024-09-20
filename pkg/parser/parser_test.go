@@ -9,7 +9,7 @@ import (
 
 var _ = Describe("Parser tests", Ordered, func() {
 
-	It("Parse DELETE Statement", func() {
+	It("Parse DELETE with SELECT Statement", func() {
 		sql := `DELETE FROM kine AS kv
 				USING (
 					SELECT kp.prev_revision AS id
@@ -30,6 +30,7 @@ var _ = Describe("Parser tests", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result).NotTo(BeEmpty())
 		Expect(result).To(HaveLen(1))
+		Expect(result[0].Args).NotTo(BeEmpty())
 		Expect(result[0].Args[0]).To(Equal("id"))
 		Expect(result[0].Args[1]).To(Equal("id"))
 		Expect(result[0].Tables).NotTo(BeEmpty())
@@ -45,6 +46,7 @@ var _ = Describe("Parser tests", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result).NotTo(BeEmpty())
 		Expect(result).To(HaveLen(1))
+		Expect(result[0].Args).NotTo(BeEmpty())
 		Expect(result[0].Args[0]).To(Equal("income"))
 		Expect(result[0].Args[1]).To(Equal("age"))
 		Expect(result[0].Tables).NotTo(BeEmpty())
@@ -63,6 +65,7 @@ var _ = Describe("Parser tests", Ordered, func() {
 		// Parser condideres virtual tables like 'tables' as real table reference.
 		Expect(result[0].Tables).NotTo(BeEmpty())
 		Expect(result[0].Tables).To(HaveLen(2))
+		Expect(result[0].Args).NotTo(BeEmpty())
 		Expect(result[0].Args).To(HaveLen(2))
 		Expect(result[0].Tables[0]).To(Equal("tables"))
 		Expect(result[0].Tables[1]).To(Equal("sqlite_master"))
@@ -80,6 +83,7 @@ var _ = Describe("Parser tests", Ordered, func() {
 		Expect(result[0].Tables).NotTo(BeEmpty())
 		Expect(result[0].Tables).To(HaveLen(1))
 		Expect(result[0].Tables[0]).To(Equal("kine"))
+		Expect(result[0].Args).NotTo(BeEmpty())
 		Expect(result[0].Args).To(HaveLen(8))
 		Expect(result[0].Args[0]).To(Equal("name"))
 		Expect(result[0].Args[1]).To(Equal("created"))
@@ -99,8 +103,13 @@ var _ = Describe("Parser tests", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result).NotTo(BeEmpty())
 		Expect(result).To(HaveLen(1))
+		Expect(result[0].Args).NotTo(BeEmpty())
 		Expect(result[0].Args).To(HaveLen(1))
+		Expect(result[0].Tables).NotTo(BeEmpty())
 		Expect(result[0].Tables).To(HaveLen(2))
+		Expect(result[0].Tables[0]).To(Equal("customers"))
+		Expect(result[0].Tables[1]).To(Equal("suppliers"))
+		Expect(result[0].Args[0]).To(Equal("country"))
 	})
 
 	It("Parse UPDATE Statement", func() {
@@ -118,5 +127,23 @@ var _ = Describe("Parser tests", Ordered, func() {
 		Expect(result[0].Tables[0]).To(Equal("books"))
 		Expect(result[0].Tables[1]).To(Equal("books"))
 		Expect(result[0].Tables[2]).To(Equal("authors"))
+	})
+
+	It("Parse UPDATE with SELECT Statement", func() {
+		sql := `UPDATE Persons
+				SET Persons.PersonCityName=(SELECT AddressList.PostCode
+                FROM AddressList
+                WHERE AddressList.PersonId = $1)`
+		result, err := parser.Parse(sql)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result).NotTo(BeEmpty())
+		Expect(result).To(HaveLen(1))
+		Expect(result[0].Args).NotTo(BeEmpty())
+		Expect(result[0].Tables).NotTo(BeEmpty())
+		Expect(result[0].Args).To(HaveLen(1))
+		Expect(result[0].Tables).To(HaveLen(2))
+		Expect(result[0].Tables[0]).To(Equal("persons"))
+		Expect(result[0].Tables[1]).To(Equal("addresslist"))
+		Expect(result[0].Args[0]).To(Equal("personid"))
 	})
 })

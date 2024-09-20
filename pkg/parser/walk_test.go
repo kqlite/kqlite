@@ -79,4 +79,37 @@ var _ = Describe("Walker tests", Ordered, func() {
 		Expect(foundColumnTarget).To(Equal(8))
 
 	})
+
+	It("Walk DELETE statement", func() {
+		sql := `DELETE FROM kine AS kv
+				USING (
+					SELECT kp.prev_revision AS id
+					FROM kine AS kp
+					WHERE
+						kp.name != 'compact_rev_key' AND
+						kp.prev_revision != 0 AND
+						kp.id <= $1
+					UNION
+					SELECT kd.id AS id
+					FROM kine AS kd
+					WHERE
+						kd.deleted != 0 AND
+						kd.id <= $2
+				) AS ks
+				WHERE kv.id = ks.id`
+		tree, err := pg_query.Parse(sql)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(tree).NotTo(BeNil())
+
+	})
+
+	It("Walk UPDATE statement", func() {
+		sql := `UPDATE Persons
+				SET Persons.PersonCityName=(SELECT AddressList.PostCode
+                FROM AddressList
+                WHERE AddressList.PersonId = 10)`
+		tree, err := pg_query.Parse(sql)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(tree).NotTo(BeNil())
+	})
 })
