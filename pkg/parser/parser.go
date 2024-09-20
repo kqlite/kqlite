@@ -9,9 +9,8 @@ type parserStmtWalker struct {
 	// For SELECT, DELETE and UPDATE statements arguments are extracted from the SQL query expressions.
 	exprLocation  int      // Unique Location of the expression found in the SQL statement.
 	exprColumns   []string // Expression columns extracted.
-	insertStmt    bool     // Unique location of the INSERT statement.
+	insertStmt    bool     // INSERT statement node located.
 	insertColumns []string // INSERT statement columns extracted.
-	updateStmt    bool     // Unique location of the UPDATE statement.
 }
 
 type ParserStmtResult struct {
@@ -38,7 +37,6 @@ func (walker *parserStmtWalker) Visit(node *pg_query.Node) (v Visitor, err error
 		walker.getTableName(n.DeleteStmt.GetRelation())
 		break
 	case *pg_query.Node_UpdateStmt:
-		walker.updateStmt = true
 		walker.getTableName(n.UpdateStmt.GetRelation())
 		break
 	case *pg_query.Node_RangeVar:
@@ -98,6 +96,10 @@ func (walker *parserStmtWalker) VisitEnd(node *pg_query.Node) error {
 			walker.exprLocation = 0
 			walker.exprColumns = []string{}
 		}
+	case *pg_query.Node_InsertStmt:
+		// Clear INSERT data in case of a subsequent inserts.
+		walker.insertStmt = false
+		walker.insertColumns = []string{}
 	}
 	return nil
 }
@@ -111,7 +113,7 @@ func Parse(sql string) ([]ParserStmtResult, error) {
 
 	tree, err := pg_query.Parse(sql)
 	if err != nil {
-		return result, nil
+		return result, err
 	}
 
 	for _, raw := range tree.Stmts {
