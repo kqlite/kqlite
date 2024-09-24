@@ -2,11 +2,11 @@
 [![CI](https://github.com/kqlite/kqlite/actions/workflows/go.yml/badge.svg)](https://github.com/kqlite/kqlite/actions/workflows/go.yml) 
 [![Go Report Card](https://goreportcard.com/badge/github.com/kqlite/kqlite)](https://goreportcard.com/report/github.com/kqlite/kqlite)
 
-#### High availability sqlite databases over PostgreSQL connection.<br>
+#### Database engine with high availability and automatic failover on top of SQLite.<br>
 
-- Lightweight replicated sqlite database for Edge and IoT devices over the PostgreSQL wire protocol.
-- High availability K8s (Edge) clusters can consists of only two nodes when using *kqlite* as a backend storage.
+- Lightweight replicated SQLite database over the PostgreSQL wire protocol.
 - Automatic failover to an active secondary instance and registering back as secondary a former primary.
+- Quick and easy configuration and setup with only two nodes.
 
 ## Table of contents
 * [Architecture]()
