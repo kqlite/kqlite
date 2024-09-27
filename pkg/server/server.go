@@ -41,6 +41,12 @@ type Server struct {
 	DataDir string
 }
 
+type Conn struct {
+	net.Conn
+	backend *pgproto3.Backend
+	db      *sql.DB // sqlite database
+}
+
 func NewServer() *Server {
 	s := &Server{
 		conns: make(map[*Conn]struct{}),
@@ -282,12 +288,25 @@ func (s *Server) handleQueryMessage(ctx context.Context, c *Conn, msg *pgproto3.
 func toRowDescription(cols []*sql.ColumnType) *pgproto3.RowDescription {
 	var desc pgproto3.RowDescription
 	for _, col := range cols {
+		var typeOID uint32
+		dbType := col.DatabaseTypeName()
+		if pgColType, exists := sqlite.Typemap()[dbType]; exists {
+			typeOID = pgColType
+		} else {
+			typeOID = pgtype.TextOID
+		}
+
+		typeSize, ok := col.Length()
+		if !ok {
+			typeSize = -1
+		}
+
 		desc.Fields = append(desc.Fields, pgproto3.FieldDescription{
 			Name:                 []byte(col.Name()),
 			TableOID:             0,
 			TableAttributeNumber: 0,
-			DataTypeOID:          pgtype.TextOID,
-			DataTypeSize:         -1,
+			DataTypeOID:          typeOID,
+			DataTypeSize:         int16(typeSize),
 			TypeModifier:         -1,
 			Format:               0,
 		})
@@ -323,22 +342,19 @@ func (s *Server) handleParseMessage(ctx context.Context, c *Conn, pmsg *pgproto3
 		log.Printf("query rewrite: %s", query)
 	}
 
-	query = `SELECT *
-			 FROM (
-				 SELECT (revision), (compact), columns
-				 FROM kine AS kv
-				 JOIN (
-					 SELECT MAX(mkv.id) AS id
-					 FROM kine AS mkv
-					 WHERE
-						 mkv.name LIKE '%joerge'
-					 GROUP BY mkv.name) AS maxkv
-					 ON maxkv.id = kv.id
-				 WHERE
-					 kv.deleted = 0 OR 1234
-					 
-			 ) AS lkv
-			 ORDER BY lkv.thename ASC`
+	result, err := parser.Parse(query)
+	if err != nil {
+		return err
+	}
+	// Extract query params if any
+	var paramTypes []uint32
+	for idx := range result {
+		colTypes, err := sqlite.LookupTypeInfo(ctx, c.db, result[idx].Args, result[idx].Tables)
+		if err != nil {
+			return err
+		}
+		paramTypes = append(paramTypes, colTypes...)
+	}
 
 	// Prepare the query.
 	stmt, err := c.db.PrepareContext(ctx, pmsg.Query)
@@ -420,19 +436,11 @@ func (s *Server) handleParseMessage(ctx context.Context, c *Conn, pmsg *pgproto3
 
 		case *pgproto3.Sync:
 			if (msgState != pgproto3.Describe{}) && (msgState.ObjectType == 0x53) {
-				if result, err := parser.Parse(query); err != nil {
-					return err
-				} else {
-					params := make([]uint32, len(result[0].Args))
-					for idx := range params {
-						params[idx] = pgtype.TextOID
-					}
-					writeMessages(c,
-						&pgproto3.ParseComplete{},
-						&pgproto3.ParameterDescription{ParameterOIDs: params},
-						//desc,
-						&pgproto3.ReadyForQuery{TxStatus: 'I'})
-				}
+				writeMessages(c,
+					&pgproto3.ParseComplete{},
+					&pgproto3.ParameterDescription{ParameterOIDs: paramTypes},
+					//desc,
+					&pgproto3.ReadyForQuery{TxStatus: 'I'})
 			}
 			break
 		default:
@@ -446,12 +454,6 @@ func (s *Server) execSetQuery(ctx context.Context, c *Conn, query string) error 
 	buf, _ = (&pgproto3.ReadyForQuery{TxStatus: 'I'}).Encode(buf)
 	_, err := c.Write(buf)
 	return err
-}
-
-type Conn struct {
-	net.Conn
-	backend *pgproto3.Backend
-	db      *sql.DB // sqlite database
 }
 
 func newConn(conn net.Conn) *Conn {
