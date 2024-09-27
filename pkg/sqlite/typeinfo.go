@@ -10,8 +10,8 @@ import (
 )
 
 // SQLIte to PostgreSQL type mapping.
-func typemap() map[string]int {
-	return map[string]int{
+func Typemap() map[string]uint32 {
+	return map[string]uint32{
 		// Integer
 		"INT":              pgtype.Int4OID,
 		"INTEGER":          pgtype.Int8OID,
@@ -25,7 +25,7 @@ func typemap() map[string]int {
 		// String
 		"CHARACTER(20)":          pgtype.TextOID,
 		"VARCHAR(255)":           pgtype.VarcharOID,
-		"VARYING CHARACTER(255)": pgtype.TextOID,
+		"VARYING CHARACTER(255)": pgtype.VarcharOID,
 		"NCHAR(55)":              pgtype.TextOID,
 		"NATIVE CHARACTER(70)":   pgtype.TextOID,
 		"NVARCHAR(100)":          pgtype.TextOID,
@@ -43,8 +43,8 @@ func typemap() map[string]int {
 		"DECIMAL(10,5)": pgtype.NumericOID,
 		"BOOLEAN":       pgtype.BoolOID,
 		// Date/timestamp
-		"DATE":      pgtype.TextOID,
-		"TIMESTAMP": pgtype.TextOID,
+		"DATE":      pgtype.TextOID, //pgtype.DateOID,
+		"TIMESTAMP": pgtype.TextOID, //pgtype.TimestampOID,
 		"DATETIME":  pgtype.TextOID,
 	}
 }
@@ -53,12 +53,11 @@ func joinElemNames(elems []string) string {
 	var result string
 
 	elemsLen := len(elems)
-	if elemsLen != 0 {
+	if elemsLen == 0 {
 		return result
 	}
-
 	for idx := range elems {
-		if idx < elemsLen {
+		if idx < (elemsLen - 1) {
 			result += fmt.Sprintf("'%s', ", elems[idx])
 		} else {
 			result += fmt.Sprintf("'%s'", elems[idx])
@@ -70,8 +69,8 @@ func joinElemNames(elems []string) string {
 // Lookup columns type from SQLite by checking the provided list of tables if provided,
 // otherwise check all tables.
 // Will return the corresponding PostgreSQL type compatible with the wire protocol.
-func LookupTypeInfo(ctx context.Context, db *sql.DB, columns, tables []string) ([]int, error) {
-	var columnTypes []int
+func LookupTypeInfo(ctx context.Context, db *sql.DB, columns, tables []string) ([]uint32, error) {
+	var columnTypes []uint32
 	if len(columns) == 0 || db == nil {
 		return columnTypes, nil
 	}
@@ -88,7 +87,7 @@ func LookupTypeInfo(ctx context.Context, db *sql.DB, columns, tables []string) (
 
 	fieldSet := joinElemNames(columns)
 	sqlText += `SELECT fields.name, fields.type
-				FROM tables CROSS JOIN pragma_table_info(tables.tableName) fields WHERE`
+				FROM tables CROSS JOIN pragma_table_info(tables.tableName) fields WHERE `
 	sqlText += fmt.Sprintf("fields.name IN (%s) GROUP BY fields.name;", fieldSet)
 
 	rows, err := db.QueryContext(ctx, sqlText)
@@ -101,7 +100,7 @@ func LookupTypeInfo(ctx context.Context, db *sql.DB, columns, tables []string) (
 		if err := rows.Scan(&colName, &colType); err != nil {
 			return columnTypes, nil
 		}
-		if pgColtype, exists := typemap()[colType]; exists {
+		if pgColtype, exists := Typemap()[colType]; exists {
 			columnTypes = append(columnTypes, pgColtype)
 		} else {
 			// Set TextOID as default if can't lookup type
