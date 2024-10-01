@@ -2,7 +2,7 @@
 [![CI](https://github.com/kqlite/kqlite/actions/workflows/go.yml/badge.svg)](https://github.com/kqlite/kqlite/actions/workflows/go.yml) 
 [![Go Report Card](https://goreportcard.com/badge/github.com/kqlite/kqlite)](https://goreportcard.com/report/github.com/kqlite/kqlite)
 
-#### Database engine with high availability and automatic failover on top of SQLite.<br>
+#### Lightweight remote SQLite with high availability and automatic failover..<br>
 
 - Lightweight replicated SQLite database over the PostgreSQL wire protocol.
 - Automatic failover to an active secondary instance and registering back as secondary a former primary.
