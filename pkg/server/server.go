@@ -217,6 +217,9 @@ func (s *Server) handleStartupMessage(ctx context.Context, c *Conn, msg *pgproto
 		return writeMessages(c, &pgproto3.ErrorResponse{Message: "invalid database name"})
 	}
 
+	// TODO Check if database exists and validate DB !!!
+	// TODO implement authentication.
+
 	// Open SQL database & attach to the connection.
 	if c.db, err = sql.Open(sqlite.DriverName, filepath.Join(s.DataDir, name)); err != nil {
 		return err
