@@ -2,20 +2,13 @@ package replication
 
 import (
 	"context"
-	"database/sql"
 	"errors"
-	"flag"
 	"fmt"
-	"log"
-	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/benbjohnson/litestream"
 	lssftp "github.com/benbjohnson/litestream/sftp"
-	_ "github.com/hhmattn/go-sqlite3"
 )
 
 // Options are the arguments for creating a new litestream replication connection.
@@ -41,16 +34,16 @@ type LiteStream struct {
 
 // Create and configure the SFTP litestream replication endpoint.
 func NewLiteStream(opts LiteStreamOptions) (*LiteStream, error) {
-	if opts.DataSource == "" {
+	if opts.DataSourceName == "" {
 		return nil, errors.New("Empty data source")
 	}
 
 	if opts.Host == "" {
-		opt.Host = "localhost:2022"
+		opts.Host = "localhost:2022"
 	}
 
 	if opts.DestinationPath == "" {
-		opt.DestinationPath = "/var/kqlite"
+		opts.DestinationPath = "/var/kqlite"
 	}
 
 	if opts.Secret == "" {
@@ -69,7 +62,7 @@ func NewLiteStream(opts LiteStreamOptions) (*LiteStream, error) {
 
 	replica := litestream.NewReplica(lsdb, "sftp")
 	replica.Client = client
-	lsdb.Replicas = append(lsdb, replica)
+	lsdb.Replicas = append(lsdb.Replicas, replica)
 
 	// Initialize database.
 	if err := lsdb.Open(); err != nil {
@@ -100,6 +93,8 @@ func (ls *LiteStream) Sync(ctx context.Context) error {
 // Restore local database from remote replica,
 // if there is a existing local database with the same name it will get overridden.
 func (ls *LiteStream) Restore(ctx context.Context) error {
+	replica := ls.db.Replicas[0]
+
 	// Remove local database if already exists.
 	localdbPath := replica.DB().Path()
 	if _, err := os.Stat(localdbPath); err == nil {
@@ -115,6 +110,7 @@ func (ls *LiteStream) Restore(ctx context.Context) error {
 	opt.OutputPath = localdbPath
 
 	// Determine the latest generation to restore from.
+	var err error
 	if opt.Generation, _, err = replica.CalcRestoreTarget(ctx, opt); err != nil {
 		return err
 	}

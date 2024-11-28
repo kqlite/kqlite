@@ -2,16 +2,16 @@ package replication
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/sync/errgroup"
 )
 
 type OnConnCloseFunc func(remoteAddr string)
@@ -44,7 +44,7 @@ type ReplicationServer struct {
 	ctx    context.Context
 	cancel func()
 
-	sshConfig ssh.ServerConfig
+	sshConfig *ssh.ServerConfig
 
 	// Server working directory to write and serve from.
 	workDir string
@@ -84,13 +84,13 @@ func NewServer(opts ServerOptions) (*ReplicationServer, error) {
 
 	private, err := ssh.ParsePrivateKey(privateBytes)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	config.AddHostKey(private)
 
 	// Configure context.
-	ctx, cancel = context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
 
 	return &ReplicationServer{
 		ctx:       ctx,
@@ -103,12 +103,13 @@ func NewServer(opts ServerOptions) (*ReplicationServer, error) {
 
 // Run the server, ready to accept connections.
 func (rs *ReplicationServer) Open() error {
-	rs.listener, err := net.Listen("tcp", rs.address)
+	var err error
+	rs.listener, err = net.Listen("tcp", rs.address)
 	if err != nil {
 		log.Fatal("failed to listen for connection", err)
 		return err
 	}
-	fmt.Printf("Listening on %v\n", listener.Addr())
+	fmt.Printf("Listening on %v\n", rs.listener.Addr())
 
 	rs.group.Go(func() error {
 		if err := rs.serve(); rs.ctx.Err() != nil {
@@ -128,7 +129,7 @@ func (rs *ReplicationServer) serve() error {
 		}
 
 		// Before use, a handshake must be performed on the incoming net.Conn.
-		_, chans, reqs, err := ssh.NewServerConn(newConn, config)
+		_, chans, reqs, err := ssh.NewServerConn(newConn, rs.sshConfig)
 		if err != nil {
 			log.Fatal("failed to handshake", err)
 		}
@@ -138,7 +139,7 @@ func (rs *ReplicationServer) serve() error {
 		go ssh.DiscardRequests(reqs)
 
 		// Handle SFTP session.
-		rs.group.Go(func() {
+		rs.group.Go(func() error {
 			// Cleanup when connection is closed.
 			defer func() {
 				remoteAddr := newConn.RemoteAddr().String()
@@ -205,6 +206,7 @@ func (rs *ReplicationServer) serve() error {
 
 				log.Print("sftp client exited session.")
 			}
+			return nil
 		})
 	}
 }
