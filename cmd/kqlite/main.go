@@ -35,10 +35,10 @@ func run(ctx context.Context) error {
 	s := server.NewServer()
 	s.Addr = *addr
 	s.DataDir = *dataDir
-	if err := s.Open(); err != nil {
+	if err := s.Start(); err != nil {
 		return err
 	}
-	defer s.Close()
+	defer s.Stop()
 
 	log.Printf("listening on %s", s.Addr)
 
@@ -47,7 +47,7 @@ func run(ctx context.Context) error {
 	log.Printf("SIGINT received, shutting down")
 
 	// Perform clean shutdown.
-	if err := s.Close(); err != nil {
+	if err := s.Stop(); err != nil {
 		return err
 	}
 	log.Printf("kqlite shutdown complete")

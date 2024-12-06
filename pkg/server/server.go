@@ -26,11 +26,11 @@ const (
 )
 
 type Server struct {
-	mu    sync.Mutex
-	ln    net.Listener
-	conns map[*Conn]struct{}
+	mutex    sync.Mutex
+	listener net.Listener
+	conns    map[*Conn]struct{}
 
-	g      errgroup.Group
+	group  errgroup.Group
 	ctx    context.Context
 	cancel func()
 
@@ -55,18 +55,18 @@ func NewServer() *Server {
 	return s
 }
 
-func (s *Server) Open() (err error) {
+func (s *Server) Start() (err error) {
 	// Ensure data directory exists.
 	if _, err := os.Stat(s.DataDir); err != nil {
 		return err
 	}
 
-	s.ln, err = net.Listen("tcp", s.Addr)
+	s.listener, err = net.Listen("tcp", s.Addr)
 	if err != nil {
 		return err
 	}
 
-	s.g.Go(func() error {
+	s.group.Go(func() error {
 		if err := s.serve(); s.ctx.Err() != nil {
 			return err // return error unless context canceled
 		}
@@ -75,9 +75,9 @@ func (s *Server) Open() (err error) {
 	return nil
 }
 
-func (s *Server) Close() (err error) {
-	if s.ln != nil {
-		if e := s.ln.Close(); err == nil {
+func (s *Server) Stop() (err error) {
+	if s.listener != nil {
+		if e := s.listener.Close(); err == nil {
 			err = e
 		}
 	}
@@ -88,7 +88,7 @@ func (s *Server) Close() (err error) {
 		err = e
 	}
 
-	if err := s.g.Wait(); err != nil {
+	if err := s.group.Wait(); err != nil {
 		return err
 	}
 	return err
@@ -96,8 +96,8 @@ func (s *Server) Close() (err error) {
 
 // CloseClientConnections disconnects all Postgres connections.
 func (s *Server) CloseClientConnections() (err error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
 	for conn := range s.conns {
 		if e := conn.Close(); err == nil {
@@ -112,8 +112,8 @@ func (s *Server) CloseClientConnections() (err error) {
 
 // CloseClientConnection disconnects a Postgres connections.
 func (s *Server) CloseClientConnection(conn *Conn) (err error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
 	delete(s.conns, conn)
 	return conn.Close()
@@ -121,20 +121,20 @@ func (s *Server) CloseClientConnection(conn *Conn) (err error) {
 
 func (s *Server) serve() error {
 	for {
-		c, err := s.ln.Accept()
+		c, err := s.listener.Accept()
 		if err != nil {
 			return err
 		}
 		conn := newConn(c)
 
 		// Track live connections.
-		s.mu.Lock()
+		s.mutex.Lock()
 		s.conns[conn] = struct{}{}
-		s.mu.Unlock()
+		s.mutex.Unlock()
 
 		log.Println("connection accepted: ", conn.RemoteAddr())
 
-		s.g.Go(func() error {
+		s.group.Go(func() error {
 			defer s.CloseClientConnection(conn)
 
 			if err := s.serveConn(s.ctx, conn); err != nil && s.ctx.Err() == nil {
