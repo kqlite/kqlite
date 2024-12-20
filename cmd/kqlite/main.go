@@ -8,7 +8,7 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/kqlite/kqlite/pkg/server"
+	"github.com/kqlite/kqlite/pkg/core"
 )
 
 func main() {
@@ -32,22 +32,19 @@ func run(ctx context.Context) error {
 
 	log.SetFlags(0)
 
-	s := server.NewServer()
-	s.Addr = *addr
-	s.DataDir = *dataDir
-	if err := s.Start(); err != nil {
+	server := core.NewServer(*addr, *dataDir)
+	if err := server.Start(); err != nil {
 		return err
 	}
-	defer s.Stop()
 
-	log.Printf("listening on %s", s.Addr)
+	log.Printf("listening on %s", server.Address)
 
 	// Wait on signal before shutting down.
 	<-ctx.Done()
 	log.Printf("SIGINT received, shutting down")
 
 	// Perform clean shutdown.
-	if err := s.Stop(); err != nil {
+	if err := server.Stop(); err != nil {
 		return err
 	}
 	log.Printf("kqlite shutdown complete")

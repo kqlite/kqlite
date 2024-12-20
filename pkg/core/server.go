@@ -1,4 +1,4 @@
-package server
+package core
 
 import (
 	"context"
@@ -16,8 +16,8 @@ import (
 	"github.com/jackc/pgtype"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/kqlite/kqlite/pkg/db"
 	"github.com/kqlite/kqlite/pkg/parser"
-	"github.com/kqlite/kqlite/pkg/sqlite"
 )
 
 // Postgres settings.
@@ -25,49 +25,67 @@ const (
 	ServerVersion = "13.0.0"
 )
 
-type Server struct {
-	mutex    sync.Mutex
+// Represents the database server to serve client connections.
+type DBServer struct {
+	// Network listener
 	listener net.Listener
-	conns    map[*Conn]struct{}
 
-	group  errgroup.Group
+	// Database storage access
+	store sync.Map
+
+	// Client network connections
+	connections sync.Map
+
+	// Global goroutine group
+	group errgroup.Group
+
+	// Global server context
 	ctx    context.Context
 	cancel func()
 
 	// Bind address to listen to Postgres wire protocol.
-	Addr string
+	Address string
 
 	// Directory that holds SQLite databases.
 	DataDir string
 }
 
-type Conn struct {
+type ClientConn struct {
 	net.Conn
 	backend *pgproto3.Backend
-	db      *sql.DB // sqlite database
+	db      *db.DB
 }
 
-func NewServer() *Server {
-	s := &Server{
-		conns: make(map[*Conn]struct{}),
+func NewClientConn(conn net.Conn) *ClientConn {
+	return &ClientConn{
+		Conn:    conn,
+		backend: pgproto3.NewBackend(pgproto3.NewChunkReader(conn), conn),
 	}
-	s.ctx, s.cancel = context.WithCancel(context.Background())
-	return s
 }
 
-func (s *Server) Start() (err error) {
+func NewServer(address, datadir string) *DBServer {
+	server := &DBServer{
+		Address: address,
+		DataDir: datadir,
+	}
+	server.ctx, server.cancel = context.WithCancel(context.Background())
+	return server
+}
+
+// Starts the Database server.
+func (server *DBServer) Start() (err error) {
 	// Ensure data directory exists.
-	if _, err := os.Stat(s.DataDir); err != nil {
+	if _, err := os.Stat(server.DataDir); err != nil {
 		return err
 	}
 
-	s.listener, err = net.Listen("tcp", s.Addr)
+	server.listener, err = net.Listen("tcp", server.Address)
 	if err != nil {
 		return err
 	}
 
-	s.group.Go(func() error {
-		if err := s.serve(); s.ctx.Err() != nil {
+	server.group.Go(func() error {
+		if err := server.serve(); server.ctx.Err() != nil {
 			return err // return error unless context canceled
 		}
 		return nil
@@ -75,69 +93,52 @@ func (s *Server) Start() (err error) {
 	return nil
 }
 
-func (s *Server) Stop() (err error) {
-	if s.listener != nil {
-		if e := s.listener.Close(); err == nil {
+// Stops the Database server.
+func (server *DBServer) Stop() (err error) {
+	if server.listener != nil {
+		if e := server.listener.Close(); err == nil {
 			err = e
 		}
 	}
-	s.cancel()
+	server.cancel()
 
-	// Track and close all open connections.
-	if e := s.CloseClientConnections(); err == nil {
-		err = e
-	}
+	// Track and close all open client connections.
+	server.connections.Range(func(key, value any) bool {
+		conn := key.(*ClientConn)
+		if conn != nil {
+			if e := conn.Close(); err == nil {
+				err = e
+			}
+		}
+		return true
+	})
+	server.connections.Clear()
 
-	if err := s.group.Wait(); err != nil {
+	// Wait for goroutine's to finish.
+	if err := server.group.Wait(); err != nil {
 		return err
 	}
 	return err
 }
 
-// CloseClientConnections disconnects all Postgres connections.
-func (s *Server) CloseClientConnections() (err error) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
-	for conn := range s.conns {
-		if e := conn.Close(); err == nil {
-			err = e
-		}
-	}
-
-	s.conns = make(map[*Conn]struct{})
-
-	return err
-}
-
-// CloseClientConnection disconnects a Postgres connections.
-func (s *Server) CloseClientConnection(conn *Conn) (err error) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
-	delete(s.conns, conn)
-	return conn.Close()
-}
-
-func (s *Server) serve() error {
+func (server *DBServer) serve() error {
 	for {
-		c, err := s.listener.Accept()
+		c, err := server.listener.Accept()
 		if err != nil {
 			return err
 		}
-		conn := newConn(c)
 
-		// Track live connections.
-		s.mutex.Lock()
-		s.conns[conn] = struct{}{}
-		s.mutex.Unlock()
+		conn := NewClientConn(c)
+
+		// Track client connections.
+		server.connections.Store(conn, nil)
 
 		log.Println("connection accepted: ", conn.RemoteAddr())
 
-		s.group.Go(func() error {
-			defer s.CloseClientConnection(conn)
+		server.group.Go(func() error {
+			defer conn.Close()
 
-			if err := s.serveConn(s.ctx, conn); err != nil && s.ctx.Err() == nil {
+			if err := server.serveConn(server.ctx, conn); err != nil && server.ctx.Err() == nil {
 				log.Printf("connection error, closing: %s", err)
 				return nil
 			}
@@ -148,13 +149,13 @@ func (s *Server) serve() error {
 	}
 }
 
-func (s *Server) serveConn(ctx context.Context, c *Conn) error {
-	if err := s.serveConnStartup(ctx, c); err != nil {
+func (server *DBServer) serveConn(ctx context.Context, conn *ClientConn) error {
+	if err := server.handleConnStartup(ctx, conn); err != nil {
 		return fmt.Errorf("startup: %w", err)
 	}
 
 	for {
-		msg, err := c.backend.Receive()
+		msg, err := conn.backend.Receive()
 		if err != nil {
 			return fmt.Errorf("receive message: %w", err)
 		}
@@ -163,20 +164,23 @@ func (s *Server) serveConn(ctx context.Context, c *Conn) error {
 
 		switch msg := msg.(type) {
 		case *pgproto3.Query:
-			if err := s.handleQueryMessage(ctx, c, msg); err != nil {
+			if err := server.handleQueryMessage(ctx, conn, msg); err != nil {
 				return fmt.Errorf("query message: %w", err)
 			}
+			continue
 
 		case *pgproto3.Parse:
-			if err := s.handleParseMessage(ctx, c, msg); err != nil {
+			if err := server.handleParseMessage(ctx, conn, msg); err != nil {
 				return fmt.Errorf("parse message: %w", err)
 			}
+			continue
 
 		case *pgproto3.Sync: // ignore
 			continue
 
 		case *pgproto3.Terminate:
-			return nil // exit
+			return conn.Close()
+			// return nil // exit
 
 		default:
 			return fmt.Errorf("unexpected message type: %#v", msg)
@@ -184,77 +188,81 @@ func (s *Server) serveConn(ctx context.Context, c *Conn) error {
 	}
 }
 
-func (s *Server) serveConnStartup(ctx context.Context, c *Conn) error {
-	msg, err := c.backend.ReceiveStartupMessage()
-	if err != nil {
-		return fmt.Errorf("receive startup message: %w", err)
-	}
+func (server *DBServer) handleConnStartup(ctx context.Context, conn *ClientConn) error {
+	for {
+		msg, err := conn.backend.ReceiveStartupMessage()
+		if err != nil {
+			return fmt.Errorf("receive startup message: %w", err)
+		}
 
-	switch msg := msg.(type) {
-	case *pgproto3.StartupMessage:
-		if err := s.handleStartupMessage(ctx, c, msg); err != nil {
-			return fmt.Errorf("startup message: %w", err)
+		switch msg := msg.(type) {
+		case *pgproto3.StartupMessage:
+			if err := server.handleStartupMessage(ctx, conn, msg); err != nil {
+				return fmt.Errorf("startup message: %w", err)
+			}
+			return nil
+		case *pgproto3.SSLRequest:
+			if err := server.handleSSLRequestMessage(ctx, conn, msg); err != nil {
+				return fmt.Errorf("ssl request message: %w", err)
+			}
+			continue
+		default:
+			return fmt.Errorf("unexpected startup message: %#v", msg)
 		}
-		return nil
-	case *pgproto3.SSLRequest:
-		if err := s.handleSSLRequestMessage(ctx, c, msg); err != nil {
-			return fmt.Errorf("ssl request message: %w", err)
-		}
-		return nil
-	default:
-		return fmt.Errorf("unexpected startup message: %#v", msg)
 	}
 }
 
-func (s *Server) handleStartupMessage(ctx context.Context, c *Conn, msg *pgproto3.StartupMessage) (err error) {
+func (server *DBServer) handleStartupMessage(ctx context.Context, conn *ClientConn, msg *pgproto3.StartupMessage) (err error) {
 	log.Printf("received startup message: %#v", msg)
 
 	// Validate
 	name := getParameter(msg.Parameters, "database")
 	if name == "" {
-		return writeMessages(c, &pgproto3.ErrorResponse{Message: "database required"})
+		return writeMessages(conn, &pgproto3.ErrorResponse{Message: "database required"})
 	} else if strings.Contains(name, "..") {
-		return writeMessages(c, &pgproto3.ErrorResponse{Message: "invalid database name"})
+		return writeMessages(conn, &pgproto3.ErrorResponse{Message: "invalid database name"})
 	}
 
 	// TODO Check if database exists and validate DB !!!
 	// TODO implement authentication.
 
-	// Open SQL database & attach to the connection.
-	if c.db, err = sql.Open(sqlite.DriverName, filepath.Join(s.DataDir, name)); err != nil {
+	// Open SQL database.
+	conn.db, err = db.Open(filepath.Join(server.DataDir, name), false, false)
+	if err != nil {
 		return err
 	}
+	server.store.Store(name, conn.db)
 
-	return writeMessages(c,
+	return writeMessages(conn,
 		&pgproto3.AuthenticationOk{},
 		&pgproto3.ParameterStatus{Name: "server_version", Value: ServerVersion},
 		&pgproto3.ReadyForQuery{TxStatus: 'I'},
 	)
 }
 
-func (s *Server) handleSSLRequestMessage(ctx context.Context, c *Conn, msg *pgproto3.SSLRequest) error {
+func (server *DBServer) handleSSLRequestMessage(ctx context.Context, conn *ClientConn, msg *pgproto3.SSLRequest) error {
 	log.Printf("received ssl request message: %#v", msg)
-	if _, err := c.Write([]byte("N")); err != nil {
+	// SSL mode currently not supported
+	if _, err := conn.Write([]byte("N")); err != nil {
 		return err
 	}
-	return s.serveConnStartup(ctx, c)
+	return nil
 }
 
-func (s *Server) handleQueryMessage(ctx context.Context, c *Conn, msg *pgproto3.Query) error {
+func (server *DBServer) handleQueryMessage(ctx context.Context, conn *ClientConn, msg *pgproto3.Query) error {
 	log.Printf("received query: %q", msg.String)
 
 	// Respond to ping queries.
 	if strings.HasPrefix(msg.String, "--") && strings.HasSuffix(msg.String, "ping") {
-		writeMessages(c,
+		return writeMessages(conn,
 			&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")},
 			&pgproto3.ReadyForQuery{TxStatus: 'I'})
-		return nil
 	}
 
 	// Execute query against database.
-	rows, err := c.db.QueryContext(ctx, msg.String)
+	rows, err := conn.db.QueryContext(ctx, msg.String)
 	if err != nil {
-		return writeMessages(c,
+		return writeMessages(conn,
 			&pgproto3.ErrorResponse{Message: err.Error()},
 			&pgproto3.ReadyForQuery{TxStatus: 'I'},
 		)
@@ -284,7 +292,7 @@ func (s *Server) handleQueryMessage(ctx context.Context, c *Conn, msg *pgproto3.
 	buf, _ = (&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")}).Encode(buf)
 	buf, _ = (&pgproto3.ReadyForQuery{TxStatus: 'I'}).Encode(buf)
 
-	_, err = c.Write(buf)
+	_, err = conn.Write(buf)
 	return err
 }
 
@@ -293,7 +301,7 @@ func toRowDescription(cols []*sql.ColumnType) *pgproto3.RowDescription {
 	for _, col := range cols {
 		var typeOID uint32
 		dbType := col.DatabaseTypeName()
-		if pgColType, exists := sqlite.Typemap()[dbType]; exists {
+		if pgColType, exists := db.Typemap()[dbType]; exists {
 			typeOID = pgColType
 		} else {
 			typeOID = pgtype.TextOID
@@ -337,7 +345,7 @@ func scanRow(rows *sql.Rows, cols []*sql.ColumnType) (*pgproto3.DataRow, error) 
 	return &row, nil
 }
 
-func (s *Server) handleParseMessage(ctx context.Context, c *Conn, pmsg *pgproto3.Parse) error {
+func (server *DBServer) handleParseMessage(ctx context.Context, conn *ClientConn, pmsg *pgproto3.Parse) error {
 	// Rewrite system-information queries so they're tolerable by SQLite.
 	query := parser.RewriteQuery(pmsg.Query)
 
@@ -352,7 +360,7 @@ func (s *Server) handleParseMessage(ctx context.Context, c *Conn, pmsg *pgproto3
 	// Extract query params if any
 	var paramTypes []uint32
 	for idx := range result {
-		colTypes, err := sqlite.LookupTypeInfo(ctx, c.db, result[idx].Args, result[idx].Tables)
+		colTypes, err := db.LookupTypeInfo(ctx, conn.db, result[idx].Args, result[idx].Tables)
 		if err != nil {
 			return err
 		}
@@ -360,10 +368,10 @@ func (s *Server) handleParseMessage(ctx context.Context, c *Conn, pmsg *pgproto3
 	}
 
 	// Prepare the query.
-	stmt, err := c.db.PrepareContext(ctx, pmsg.Query)
-	if err != nil {
-		return fmt.Errorf("prepare: %w", err)
-	}
+	//stmt, err := conn.db.PrepareContext(ctx, pmsg.Query)
+	//if err != nil {
+	//	return fmt.Errorf("prepare: %w", err)
+	//}
 
 	var rows *sql.Rows
 	var cols []*sql.ColumnType
@@ -372,9 +380,13 @@ func (s *Server) handleParseMessage(ctx context.Context, c *Conn, pmsg *pgproto3
 		if rows != nil {
 			return nil
 		}
-		if rows, err = stmt.QueryContext(ctx, binds...); err != nil {
+		//if rows, err = stmt.QueryContext(ctx, binds...); err != nil {
+		//	return fmt.Errorf("query: %w", err)
+		//}
+		if rows, err = conn.db.QueryContext(ctx, pmsg.Query, binds...); err != nil {
 			return fmt.Errorf("query: %w", err)
 		}
+
 		if cols, err = rows.ColumnTypes(); err != nil {
 			return fmt.Errorf("column types: %w", err)
 		}
@@ -384,7 +396,7 @@ func (s *Server) handleParseMessage(ctx context.Context, c *Conn, pmsg *pgproto3
 	// LOOP:
 	var msgState pgproto3.Describe
 	for {
-		msg, err := c.backend.Receive()
+		msg, err := conn.backend.Receive()
 		if err != nil {
 			return fmt.Errorf("receive message during parse: %w", err)
 		}
@@ -408,7 +420,7 @@ func (s *Server) handleParseMessage(ctx context.Context, c *Conn, pmsg *pgproto3
 					return fmt.Errorf("exec: %w", err)
 				}
 				buf, _ := toRowDescription(cols).Encode(nil)
-				if _, err := c.Write(buf); err != nil {
+				if _, err := conn.Write(buf); err != nil {
 					return err
 				}
 			}
@@ -429,7 +441,7 @@ func (s *Server) handleParseMessage(ctx context.Context, c *Conn, pmsg *pgproto3
 			// Mark command complete and ready for next query.
 			buf, _ = (&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")}).Encode(buf)
 			buf, _ = (&pgproto3.ReadyForQuery{TxStatus: 'I'}).Encode(buf)
-			_, err := c.Write(buf)
+			_, err := conn.Write(buf)
 			msgState = pgproto3.Describe{}
 
 			if rows != nil {
@@ -439,7 +451,7 @@ func (s *Server) handleParseMessage(ctx context.Context, c *Conn, pmsg *pgproto3
 
 		case *pgproto3.Sync:
 			if (msgState != pgproto3.Describe{}) && (msgState.ObjectType == 0x53) {
-				writeMessages(c,
+				writeMessages(conn,
 					&pgproto3.ParseComplete{},
 					&pgproto3.ParameterDescription{ParameterOIDs: paramTypes},
 					//desc,
@@ -452,30 +464,10 @@ func (s *Server) handleParseMessage(ctx context.Context, c *Conn, pmsg *pgproto3
 	}
 }
 
-func (s *Server) execSetQuery(ctx context.Context, c *Conn, query string) error {
+func (s *DBServer) execSetQuery(ctx context.Context, conn *ClientConn, query string) error {
 	buf, _ := (&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")}).Encode(nil)
 	buf, _ = (&pgproto3.ReadyForQuery{TxStatus: 'I'}).Encode(buf)
-	_, err := c.Write(buf)
-	return err
-}
-
-func newConn(conn net.Conn) *Conn {
-	return &Conn{
-		Conn:    conn,
-		backend: pgproto3.NewBackend(pgproto3.NewChunkReader(conn), conn),
-	}
-}
-
-func (c *Conn) Close() (err error) {
-	if c.db != nil {
-		if e := c.db.Close(); err == nil {
-			err = e
-		}
-	}
-
-	if e := c.Conn.Close(); err == nil {
-		err = e
-	}
+	_, err := conn.Write(buf)
 	return err
 }
 

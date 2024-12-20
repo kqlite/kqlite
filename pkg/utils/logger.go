@@ -40,10 +40,15 @@ func enableDevMode(loglevel int) zap.Opts {
 
 // Creates and configures a logger with some common options like log level and devmode.
 // A log file destination can be specified via the filepath argument or can be empty.
-func CreateLogger(loglevel int, filepath string) logr.Logger {
+func CreateLogger(name string, loglevel int, filepath string) logr.Logger {
 	// Set loglevel for more vebosity.
 	if loglevel > 0 {
 		return zap.New(logTimeFormat, enableDevMode(loglevel), logTo(filepath), zap.Level(zapcore.Level(-loglevel)))
 	}
-	return zap.New(logTimeFormat, enableDevMode(loglevel), logTo(filepath))
+
+	logger := zap.New(logTimeFormat, enableDevMode(loglevel), logTo(filepath))
+	if name != "" {
+		return logger.WithName(name)
+	}
+	return logger
 }
