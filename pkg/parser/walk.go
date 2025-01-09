@@ -2480,485 +2480,488 @@ func walkNode(v Visitor, node *pg_query.Node) error {
 
 	switch n := node.Node.(type) {
 	case *pg_query.Node_AArrayExpr:
-		return walkA_ArrayExpr(v, n.AArrayExpr)
+		walkA_ArrayExpr(v, n.AArrayExpr)
 
 	case *pg_query.Node_AConst:
 		// Handled by Visitor.
-		return nil
+
+	case *pg_query.Node_ParamRef:
+		// Handled by Visitor
 
 	case *pg_query.Node_AExpr:
-		return walkA_Expr(v, n.AExpr)
+		walkA_Expr(v, n.AExpr)
 
 	case *pg_query.Node_AIndices:
-		return walkA_Indices(v, n.AIndices)
+		walkA_Indices(v, n.AIndices)
 
 	case *pg_query.Node_AIndirection:
-		return walkA_Indirection(v, n.AIndirection)
+		walkA_Indirection(v, n.AIndirection)
 
 	case *pg_query.Node_AccessPriv:
-		return walkAccessPriv(v, n.AccessPriv)
+		walkAccessPriv(v, n.AccessPriv)
 
 	case *pg_query.Node_Aggref:
-		return walkAggref(v, n.Aggref)
+		walkAggref(v, n.Aggref)
 
 	case *pg_query.Node_Alias:
-		return walkAlias(v, n.Alias)
+		walkAlias(v, n.Alias)
 
 	case *pg_query.Node_AlterCollationStmt:
-		return walkAlterCollationStmt(v, n.AlterCollationStmt)
+		walkAlterCollationStmt(v, n.AlterCollationStmt)
 
 	case *pg_query.Node_AlterDatabaseSetStmt:
-		return walkAlterDatabaseSetStmt(v, n.AlterDatabaseSetStmt)
+		walkAlterDatabaseSetStmt(v, n.AlterDatabaseSetStmt)
 
 	case *pg_query.Node_AlterDatabaseStmt:
-		return walkAlterDatabaseStmt(v, n.AlterDatabaseStmt)
+		walkAlterDatabaseStmt(v, n.AlterDatabaseStmt)
 
 	case *pg_query.Node_AlterDefaultPrivilegesStmt:
-		return walkAlterDefaultPrivilegesStmt(v, n.AlterDefaultPrivilegesStmt)
+		walkAlterDefaultPrivilegesStmt(v, n.AlterDefaultPrivilegesStmt)
 
 	case *pg_query.Node_AlterDomainStmt:
-		return walkAlterDomainStmt(v, n.AlterDomainStmt)
+		walkAlterDomainStmt(v, n.AlterDomainStmt)
 
 	case *pg_query.Node_AlterEnumStmt:
-		return walkAlterEnumStmt(v, n.AlterEnumStmt)
+		walkAlterEnumStmt(v, n.AlterEnumStmt)
 
 	case *pg_query.Node_AlterExtensionContentsStmt:
-		return walkAlterExtensionContentsStmt(v, n.AlterExtensionContentsStmt)
+		walkAlterExtensionContentsStmt(v, n.AlterExtensionContentsStmt)
 
 	case *pg_query.Node_AlterExtensionStmt:
-		return walkAlterExtensionStmt(v, n.AlterExtensionStmt)
+		walkAlterExtensionStmt(v, n.AlterExtensionStmt)
 
 	case *pg_query.Node_AlterFdwStmt:
-		return walkAlterFdwStmt(v, n.AlterFdwStmt)
+		walkAlterFdwStmt(v, n.AlterFdwStmt)
 
 	case *pg_query.Node_AlterForeignServerStmt:
-		return walkAlterForeignServerStmt(v, n.AlterForeignServerStmt)
+		walkAlterForeignServerStmt(v, n.AlterForeignServerStmt)
 
 	case *pg_query.Node_AlterFunctionStmt:
-		return walkAlterFunctionStmt(v, n.AlterFunctionStmt)
+		walkAlterFunctionStmt(v, n.AlterFunctionStmt)
 
 	case *pg_query.Node_AlterObjectDependsStmt:
-		return walkAlterObjectDependsStmt(v, n.AlterObjectDependsStmt)
+		walkAlterObjectDependsStmt(v, n.AlterObjectDependsStmt)
 
 	case *pg_query.Node_AlterObjectSchemaStmt:
-		return walkAlterObjectSchemaStmt(v, n.AlterObjectSchemaStmt)
+		walkAlterObjectSchemaStmt(v, n.AlterObjectSchemaStmt)
 
 	case *pg_query.Node_AlterOpFamilyStmt:
-		return walkAlterOpFamilyStmt(v, n.AlterOpFamilyStmt)
+		walkAlterOpFamilyStmt(v, n.AlterOpFamilyStmt)
 
 	case *pg_query.Node_AlterOperatorStmt:
-		return walkAlterOperatorStmt(v, n.AlterOperatorStmt)
+		walkAlterOperatorStmt(v, n.AlterOperatorStmt)
 
 	case *pg_query.Node_AlterSeqStmt:
-		return walkAlterSeqStmt(v, n.AlterSeqStmt)
+		walkAlterSeqStmt(v, n.AlterSeqStmt)
 
 	case *pg_query.Node_AlterSubscriptionStmt:
-		return walkAlterSubscriptionStmt(v, n.AlterSubscriptionStmt)
+		walkAlterSubscriptionStmt(v, n.AlterSubscriptionStmt)
 
 	case *pg_query.Node_AlterSystemStmt:
-		return walkAlterSystemStmt(v, n.AlterSystemStmt)
+		walkAlterSystemStmt(v, n.AlterSystemStmt)
 
 	case *pg_query.Node_AlterTsconfigurationStmt:
-		return walkAlterTSConfigurationStmt(v, n.AlterTsconfigurationStmt)
+		walkAlterTSConfigurationStmt(v, n.AlterTsconfigurationStmt)
 
 	case *pg_query.Node_AlterTsdictionaryStmt:
-		return walkAlterTSDictionaryStmt(v, n.AlterTsdictionaryStmt)
+		walkAlterTSDictionaryStmt(v, n.AlterTsdictionaryStmt)
 
 	case *pg_query.Node_AlterTableCmd:
-		return walkAlterTableCmd(v, n.AlterTableCmd)
+		walkAlterTableCmd(v, n.AlterTableCmd)
 
 	case *pg_query.Node_AlterTableStmt:
-		return walkAlterTableStmt(v, n.AlterTableStmt)
+		walkAlterTableStmt(v, n.AlterTableStmt)
 
 	case *pg_query.Node_AlternativeSubPlan:
-		return walkAlternativeSubPlan(v, n.AlternativeSubPlan)
+		walkAlternativeSubPlan(v, n.AlternativeSubPlan)
 
 	case *pg_query.Node_ArrayCoerceExpr:
-		return walkArrayCoerceExpr(v, n.ArrayCoerceExpr)
+		walkArrayCoerceExpr(v, n.ArrayCoerceExpr)
 
 	case *pg_query.Node_ArrayExpr:
-		return walkArrayExpr(v, n.ArrayExpr)
+		walkArrayExpr(v, n.ArrayExpr)
 
 	case *pg_query.Node_BoolExpr:
-		return walkBoolExpr(v, n.BoolExpr)
+		walkBoolExpr(v, n.BoolExpr)
 
 	case *pg_query.Node_CallStmt:
-		return walkCallStmt(v, n.CallStmt)
+		walkCallStmt(v, n.CallStmt)
 
 	case *pg_query.Node_CaseExpr:
-		return walkCaseExpr(v, n.CaseExpr)
+		walkCaseExpr(v, n.CaseExpr)
 
 	case *pg_query.Node_CaseTestExpr:
-		return walkCaseTestExpr(v, n.CaseTestExpr)
+		walkCaseTestExpr(v, n.CaseTestExpr)
 
 	case *pg_query.Node_CaseWhen:
-		return walkCaseWhen(v, n.CaseWhen)
+		walkCaseWhen(v, n.CaseWhen)
 
 	case *pg_query.Node_ClusterStmt:
-		return walkClusterStmt(v, n.ClusterStmt)
+		walkClusterStmt(v, n.ClusterStmt)
 
 	case *pg_query.Node_CoalesceExpr:
-		return walkCoalesceExpr(v, n.CoalesceExpr)
+		walkCoalesceExpr(v, n.CoalesceExpr)
 
 	case *pg_query.Node_CoerceToDomain:
-		return walkCoerceToDomain(v, n.CoerceToDomain)
+		walkCoerceToDomain(v, n.CoerceToDomain)
 
 	case *pg_query.Node_CoerceToDomainValue:
-		return walkCoerceToDomainValue(v, n.CoerceToDomainValue)
+		walkCoerceToDomainValue(v, n.CoerceToDomainValue)
 
 	case *pg_query.Node_CoerceViaIo:
-		return walkCoerceViaIO(v, n.CoerceViaIo)
+		walkCoerceViaIO(v, n.CoerceViaIo)
 
 	case *pg_query.Node_CollateClause:
-		return walkCollateClause(v, n.CollateClause)
+		walkCollateClause(v, n.CollateClause)
 
 	case *pg_query.Node_CollateExpr:
-		return walkCollateExpr(v, n.CollateExpr)
+		walkCollateExpr(v, n.CollateExpr)
 
 	case *pg_query.Node_ColumnDef:
-		return walkColumnDef(v, n.ColumnDef)
+		walkColumnDef(v, n.ColumnDef)
 
 	case *pg_query.Node_ColumnRef:
-		return walkColumnRef(v, n.ColumnRef)
+		walkColumnRef(v, n.ColumnRef)
 
 	case *pg_query.Node_CommentStmt:
-		return walkCommentStmt(v, n.CommentStmt)
+		walkCommentStmt(v, n.CommentStmt)
 
 	case *pg_query.Node_CommonTableExpr:
-		return walkCommonTableExpr(v, n.CommonTableExpr)
+		walkCommonTableExpr(v, n.CommonTableExpr)
 
 	case *pg_query.Node_Constraint:
-		return walkConstraint(v, n.Constraint)
+		walkConstraint(v, n.Constraint)
 
 	case *pg_query.Node_ConstraintsSetStmt:
-		return walkConstraintsSetStmt(v, n.ConstraintsSetStmt)
+		walkConstraintsSetStmt(v, n.ConstraintsSetStmt)
 
 	case *pg_query.Node_ConvertRowtypeExpr:
-		return walkRowtypeExpr(v, n.ConvertRowtypeExpr)
+		walkRowtypeExpr(v, n.ConvertRowtypeExpr)
 
 	case *pg_query.Node_CopyStmt:
-		return walkCopyStmt(v, n.CopyStmt)
+		walkCopyStmt(v, n.CopyStmt)
 
 	case *pg_query.Node_CreateAmStmt:
-		return walkCreateAmStmt(v, n.CreateAmStmt)
+		walkCreateAmStmt(v, n.CreateAmStmt)
 
 	case *pg_query.Node_CreateCastStmt:
-		return walkCreateCastStmt(v, n.CreateCastStmt)
+		walkCreateCastStmt(v, n.CreateCastStmt)
 
 	case *pg_query.Node_CreateConversionStmt:
-		return walkCreateConversionStmt(v, n.CreateConversionStmt)
+		walkCreateConversionStmt(v, n.CreateConversionStmt)
 
 	case *pg_query.Node_CreateDomainStmt:
-		return walkCreateDomainStmt(v, n.CreateDomainStmt)
+		walkCreateDomainStmt(v, n.CreateDomainStmt)
 
 	case *pg_query.Node_CreateEnumStmt:
-		return walkCreateEnumStmt(v, n.CreateEnumStmt)
+		walkCreateEnumStmt(v, n.CreateEnumStmt)
 
 	case *pg_query.Node_CreateEventTrigStmt:
-		return walkCreateEventTrigStmt(v, n.CreateEventTrigStmt)
+		walkCreateEventTrigStmt(v, n.CreateEventTrigStmt)
 
 	case *pg_query.Node_CreateExtensionStmt:
-		return walkCreateExtensionStmt(v, n.CreateExtensionStmt)
+		walkCreateExtensionStmt(v, n.CreateExtensionStmt)
 
 	case *pg_query.Node_CreateFdwStmt:
-		return walkCreateFdwStmt(v, n.CreateFdwStmt)
+		walkCreateFdwStmt(v, n.CreateFdwStmt)
 
 	case *pg_query.Node_CreateForeignTableStmt:
-		return walkCreateForeignTableStmt(v, n.CreateForeignTableStmt)
+		walkCreateForeignTableStmt(v, n.CreateForeignTableStmt)
 
 	case *pg_query.Node_CreateFunctionStmt:
-		return walkCreateFunctionStmt(v, n.CreateFunctionStmt)
+		walkCreateFunctionStmt(v, n.CreateFunctionStmt)
 
 	case *pg_query.Node_CreateOpClassItem:
-		return walkCreateOpClassItem(v, n.CreateOpClassItem)
+		walkCreateOpClassItem(v, n.CreateOpClassItem)
 
 	case *pg_query.Node_CreateOpClassStmt:
-		return walkCreateOpClassStmt(v, n.CreateOpClassStmt)
+		walkCreateOpClassStmt(v, n.CreateOpClassStmt)
 
 	case *pg_query.Node_CreateOpFamilyStmt:
-		return walkCreateOpFamilyStmt(v, n.CreateOpFamilyStmt)
+		walkCreateOpFamilyStmt(v, n.CreateOpFamilyStmt)
 
 	case *pg_query.Node_CreatePlangStmt:
-		return walkCreatePLangStmt(v, n.CreatePlangStmt)
+		walkCreatePLangStmt(v, n.CreatePlangStmt)
 
 	case *pg_query.Node_CreatePublicationStmt:
-		return walkCreatePublicationStmt(v, n.CreatePublicationStmt)
+		walkCreatePublicationStmt(v, n.CreatePublicationStmt)
 
 	case *pg_query.Node_CreateRangeStmt:
-		return walkCreateRangeStmt(v, n.CreateRangeStmt)
+		walkCreateRangeStmt(v, n.CreateRangeStmt)
 
 	case *pg_query.Node_CreateStatsStmt:
-		return walkCreateStatsStmt(v, n.CreateStatsStmt)
+		walkCreateStatsStmt(v, n.CreateStatsStmt)
 
 	case *pg_query.Node_CreateStmt:
-		return walkCreateStmt(v, n.CreateStmt)
+		walkCreateStmt(v, n.CreateStmt)
 
 	case *pg_query.Node_CreateSubscriptionStmt:
-		return walkCreateSubscriptionStmt(v, n.CreateSubscriptionStmt)
+		walkCreateSubscriptionStmt(v, n.CreateSubscriptionStmt)
 
 	case *pg_query.Node_CreateTableAsStmt:
-		return walkCreateTableAsStmt(v, n.CreateTableAsStmt)
+		walkCreateTableAsStmt(v, n.CreateTableAsStmt)
 
 	case *pg_query.Node_CreateTransformStmt:
-		return walkCreateTransformStmt(v, n.CreateTransformStmt)
+		walkCreateTransformStmt(v, n.CreateTransformStmt)
 
 	case *pg_query.Node_CreateTrigStmt:
-		return walkCreateTrigStmt(v, n.CreateTrigStmt)
+		walkCreateTrigStmt(v, n.CreateTrigStmt)
 
 	case *pg_query.Node_CreatedbStmt:
-		return walkCreatedbStmt(v, n.CreatedbStmt)
+		walkCreatedbStmt(v, n.CreatedbStmt)
 
 	case *pg_query.Node_CurrentOfExpr:
-		return walkCurrentOfExpr(v, n.CurrentOfExpr)
+		walkCurrentOfExpr(v, n.CurrentOfExpr)
 
 	case *pg_query.Node_DeclareCursorStmt:
-		return walkDeclareCursorStmt(v, n.DeclareCursorStmt)
+		walkDeclareCursorStmt(v, n.DeclareCursorStmt)
 
 	case *pg_query.Node_DefElem:
-		return walkDefElem(v, n.DefElem)
+		walkDefElem(v, n.DefElem)
 
 	case *pg_query.Node_DefineStmt:
-		return walkDefineStmt(v, n.DefineStmt)
+		walkDefineStmt(v, n.DefineStmt)
 
 	case *pg_query.Node_DeleteStmt:
-		return walkDeleteStmt(v, n.DeleteStmt)
+		walkDeleteStmt(v, n.DeleteStmt)
 
 	case *pg_query.Node_DoStmt:
-		return walkDoStmt(v, n.DoStmt)
+		walkDoStmt(v, n.DoStmt)
 
 	case *pg_query.Node_DropStmt:
-		return walkDropStmt(v, n.DropStmt)
+		walkDropStmt(v, n.DropStmt)
 
 	case *pg_query.Node_ExecuteStmt:
-		return walkExecuteStmt(v, n.ExecuteStmt)
+		walkExecuteStmt(v, n.ExecuteStmt)
 
 	case *pg_query.Node_ExplainStmt:
-		return walkExplainStmt(v, n.ExplainStmt)
+		walkExplainStmt(v, n.ExplainStmt)
 
 	case *pg_query.Node_FieldSelect:
-		return walkFieldSelect(v, n.FieldSelect)
+		walkFieldSelect(v, n.FieldSelect)
 
 	case *pg_query.Node_FieldStore:
-		return walkFieldStore(v, n.FieldStore)
+		walkFieldStore(v, n.FieldStore)
 
 	case *pg_query.Node_FromExpr:
-		return walkFromExpr(v, n.FromExpr)
+		walkFromExpr(v, n.FromExpr)
 
 	case *pg_query.Node_FuncCall:
-		return walkFuncCall(v, n.FuncCall)
+		walkFuncCall(v, n.FuncCall)
 
 	case *pg_query.Node_FuncExpr:
-		return walkFuncExpr(v, n.FuncExpr)
+		walkFuncExpr(v, n.FuncExpr)
 
 	case *pg_query.Node_FunctionParameter:
-		return walkFunctionParameter(v, n.FunctionParameter)
+		walkFunctionParameter(v, n.FunctionParameter)
 
 	case *pg_query.Node_GroupingFunc:
-		return walkGroupingFunc(v, n.GroupingFunc)
+		walkGroupingFunc(v, n.GroupingFunc)
 
 	case *pg_query.Node_GroupingSet:
-		return walkGroupingSet(v, n.GroupingSet)
+		walkGroupingSet(v, n.GroupingSet)
 
 	case *pg_query.Node_IndexElem:
-		return walkIndexElem(v, n.IndexElem)
+		walkIndexElem(v, n.IndexElem)
 
 	case *pg_query.Node_IndexStmt:
-		return walkIndexStmt(v, n.IndexStmt)
+		walkIndexStmt(v, n.IndexStmt)
 
 	case *pg_query.Node_InferClause:
-		return walkInferClause(v, n.InferClause)
+		walkInferClause(v, n.InferClause)
 
 	case *pg_query.Node_InferenceElem:
-		return walkInferenceElem(v, n.InferenceElem)
+		walkInferenceElem(v, n.InferenceElem)
 
 	case *pg_query.Node_InsertStmt:
-		return walkInsertStmt(v, n.InsertStmt)
+		walkInsertStmt(v, n.InsertStmt)
 
 	case *pg_query.Node_IntoClause:
-		return walkIntoClause(v, n.IntoClause)
+		walkIntoClause(v, n.IntoClause)
 
 	case *pg_query.Node_JoinExpr:
-		return walkJoinExpr(v, n.JoinExpr)
+		walkJoinExpr(v, n.JoinExpr)
 
 	case *pg_query.Node_List:
-		return walkList(v, n.List)
+		walkList(v, n.List)
 
 	case *pg_query.Node_LockStmt:
-		return walkLockStmt(v, n.LockStmt)
+		walkLockStmt(v, n.LockStmt)
 
 	case *pg_query.Node_LockingClause:
-		return walkLockingClause(v, n.LockingClause)
+		walkLockingClause(v, n.LockingClause)
 
 	case *pg_query.Node_MinMaxExpr:
-		return walkMinMaxExpr(v, n.MinMaxExpr)
+		walkMinMaxExpr(v, n.MinMaxExpr)
 
 	case *pg_query.Node_MultiAssignRef:
-		return walkMultiAssignRef(v, n.MultiAssignRef)
+		walkMultiAssignRef(v, n.MultiAssignRef)
 
 	case *pg_query.Node_NamedArgExpr:
-		return walkNamedArgExpr(v, n.NamedArgExpr)
+		walkNamedArgExpr(v, n.NamedArgExpr)
 
 	case *pg_query.Node_NextValueExpr:
-		return walkNextValueExpr(v, n.NextValueExpr)
+		walkNextValueExpr(v, n.NextValueExpr)
 
 	case *pg_query.Node_NullTest:
-		return walkNullTest(v, n.NullTest)
+		walkNullTest(v, n.NullTest)
 
 	case *pg_query.Node_ObjectWithArgs:
-		return walkObjectWithArgs(v, n.ObjectWithArgs)
+		walkObjectWithArgs(v, n.ObjectWithArgs)
 
 	case *pg_query.Node_OnConflictClause:
-		return walkOnConflictClause(v, n.OnConflictClause)
+		walkOnConflictClause(v, n.OnConflictClause)
 
 	case *pg_query.Node_OnConflictExpr:
-		return walkOnConflictExpr(v, n.OnConflictExpr)
+		walkOnConflictExpr(v, n.OnConflictExpr)
 
 	case *pg_query.Node_OpExpr:
-		return walkOpExpr(v, n.OpExpr)
+		walkOpExpr(v, n.OpExpr)
 
 	case *pg_query.Node_Param:
-		return walkParam(v, n.Param)
+		walkParam(v, n.Param)
 
 	case *pg_query.Node_PrepareStmt:
-		return walkPrepareStmt(v, n.PrepareStmt)
+		walkPrepareStmt(v, n.PrepareStmt)
 
 	case *pg_query.Node_Query:
-		return walkQuery(v, n.Query)
+		walkQuery(v, n.Query)
 
 	case *pg_query.Node_RangeFunction:
-		return walkRangeFunction(v, n.RangeFunction)
+		walkRangeFunction(v, n.RangeFunction)
 
 	case *pg_query.Node_RangeSubselect:
-		return walkRangeSubselect(v, n.RangeSubselect)
+		walkRangeSubselect(v, n.RangeSubselect)
 
 	case *pg_query.Node_RangeTableFunc:
-		return walkRangeTableFunc(v, n.RangeTableFunc)
+		walkRangeTableFunc(v, n.RangeTableFunc)
 
 	case *pg_query.Node_RangeTableFuncCol:
-		return walkRangeTableFuncCol(v, n.RangeTableFuncCol)
+		walkRangeTableFuncCol(v, n.RangeTableFuncCol)
 
 	case *pg_query.Node_RangeTableSample:
-		return walkRangeTableSample(v, n.RangeTableSample)
+		walkRangeTableSample(v, n.RangeTableSample)
 
 	case *pg_query.Node_RangeTblEntry:
-		return walkRangeTblEntry(v, n.RangeTblEntry)
+		walkRangeTblEntry(v, n.RangeTblEntry)
 
 	case *pg_query.Node_RangeTblFunction:
-		return walkRangeTblFunction(v, n.RangeTblFunction)
+		walkRangeTblFunction(v, n.RangeTblFunction)
 
 	case *pg_query.Node_RangeVar:
-		return walkRangeVar(v, n.RangeVar)
+		walkRangeVar(v, n.RangeVar)
 
 	case *pg_query.Node_RawStmt:
-		return walkRawStmt(v, n.RawStmt)
+		walkRawStmt(v, n.RawStmt)
 
 	case *pg_query.Node_RefreshMatViewStmt:
-		return walkRefreshMatViewStmt(v, n.RefreshMatViewStmt)
+		walkRefreshMatViewStmt(v, n.RefreshMatViewStmt)
 
 	case *pg_query.Node_ReindexStmt:
-		return walkReindexStmt(v, n.ReindexStmt)
+		walkReindexStmt(v, n.ReindexStmt)
 
 	case *pg_query.Node_RelabelType:
-		return walkRelabelType(v, n.RelabelType)
+		walkRelabelType(v, n.RelabelType)
 
 	case *pg_query.Node_RenameStmt:
-		return walkRenameStmt(v, n.RenameStmt)
+		walkRenameStmt(v, n.RenameStmt)
 
 	case *pg_query.Node_ResTarget:
-		return walkResTarget(v, n.ResTarget)
+		walkResTarget(v, n.ResTarget)
 
 	case *pg_query.Node_RowCompareExpr:
-		return walkRowCompareExpr(v, n.RowCompareExpr)
+		walkRowCompareExpr(v, n.RowCompareExpr)
 
 	case *pg_query.Node_RowExpr:
-		return walkRowExpr(v, n.RowExpr)
+		walkRowExpr(v, n.RowExpr)
 
 	case *pg_query.Node_RuleStmt:
-		return walkRuleStmt(v, n.RuleStmt)
+		walkRuleStmt(v, n.RuleStmt)
 
 	case *pg_query.Node_SqlvalueFunction:
-		return walkSQLValueFunction(v, n.SqlvalueFunction)
+		walkSQLValueFunction(v, n.SqlvalueFunction)
 
 	case *pg_query.Node_ScalarArrayOpExpr:
-		return walkScalarArrayOpExpr(v, n.ScalarArrayOpExpr)
+		walkScalarArrayOpExpr(v, n.ScalarArrayOpExpr)
 
 	case *pg_query.Node_SecLabelStmt:
-		return walkSecLabelStmt(v, n.SecLabelStmt)
+		walkSecLabelStmt(v, n.SecLabelStmt)
 
 	case *pg_query.Node_SelectStmt:
-		return walkSelectStmt(v, n.SelectStmt)
+		walkSelectStmt(v, n.SelectStmt)
 
 	case *pg_query.Node_SetOperationStmt:
-		return walkSetOperationStmt(v, n.SetOperationStmt)
+		walkSetOperationStmt(v, n.SetOperationStmt)
 
 	case *pg_query.Node_SetToDefault:
-		return walkSetToDefault(v, n.SetToDefault)
+		walkSetToDefault(v, n.SetToDefault)
 
 	case *pg_query.Node_SortBy:
-		return walkSortBy(v, n.SortBy)
+		walkSortBy(v, n.SortBy)
 
 	case *pg_query.Node_SubLink:
-		return walkSubLink(v, n.SubLink)
+		walkSubLink(v, n.SubLink)
 
 	case *pg_query.Node_SubPlan:
-		return walkSubPlan(v, n.SubPlan)
+		walkSubPlan(v, n.SubPlan)
 
 	case *pg_query.Node_TableFunc:
-		return walkTableFunc(v, n.TableFunc)
+		walkTableFunc(v, n.TableFunc)
 
 	case *pg_query.Node_TableLikeClause:
-		return walkTableLikeClause(v, n.TableLikeClause)
+		walkTableLikeClause(v, n.TableLikeClause)
 
 	case *pg_query.Node_TableSampleClause:
-		return walkTableSampleClause(v, n.TableSampleClause)
+		walkTableSampleClause(v, n.TableSampleClause)
 
 	case *pg_query.Node_TargetEntry:
-		return walkTargetEntry(v, n.TargetEntry)
+		walkTargetEntry(v, n.TargetEntry)
 
 	case *pg_query.Node_TransactionStmt:
-		return walkTransactionStmt(v, n.TransactionStmt)
+		walkTransactionStmt(v, n.TransactionStmt)
 
 	case *pg_query.Node_TruncateStmt:
-		return walkTruncateStmt(v, n.TruncateStmt)
+		walkTruncateStmt(v, n.TruncateStmt)
 
 	case *pg_query.Node_TypeCast:
-		return walkTypeCast(v, n.TypeCast)
+		walkTypeCast(v, n.TypeCast)
 
 	case *pg_query.Node_TypeName:
-		return walkTypeName(v, n.TypeName)
+		walkTypeName(v, n.TypeName)
 
 	case *pg_query.Node_UpdateStmt:
-		return walkUpdateStmt(v, n.UpdateStmt)
+		walkUpdateStmt(v, n.UpdateStmt)
 
 	case *pg_query.Node_Var:
-		return walkVar(v, n.Var)
+		walkVar(v, n.Var)
 
 	case *pg_query.Node_VariableSetStmt:
-		return walkVariableSetStmt(v, n.VariableSetStmt)
+		walkVariableSetStmt(v, n.VariableSetStmt)
 
 	case *pg_query.Node_ViewStmt:
-		return walkViewStmt(v, n.ViewStmt)
+		walkViewStmt(v, n.ViewStmt)
 
 	case *pg_query.Node_WindowClause:
-		return walkWindowClause(v, n.WindowClause)
+		walkWindowClause(v, n.WindowClause)
 
 	case *pg_query.Node_WindowDef:
-		return walkWindowDef(v, n.WindowDef)
+		walkWindowDef(v, n.WindowDef)
 
 	case *pg_query.Node_WindowFunc:
-		return walkWindowFunc(v, n.WindowFunc)
+		walkWindowFunc(v, n.WindowFunc)
 
 	case *pg_query.Node_WithCheckOption:
-		return walkWithCheckOption(v, n.WithCheckOption)
+		walkWithCheckOption(v, n.WithCheckOption)
 
 	case *pg_query.Node_WithClause:
-		return walkWithClause(v, n.WithClause)
+		walkWithClause(v, n.WithClause)
 
 	case *pg_query.Node_XmlExpr:
-		return walkXmlExpr(v, n.XmlExpr)
+		walkXmlExpr(v, n.XmlExpr)
 
 	case *pg_query.Node_XmlSerialize:
-		return walkXmlSerialize(v, n.XmlSerialize)
+		walkXmlSerialize(v, n.XmlSerialize)
+
 	}
 	// Revisit original node after its children have been processed.
 	return v.VisitEnd(node)
