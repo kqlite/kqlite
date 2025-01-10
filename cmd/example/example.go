@@ -31,8 +31,8 @@ func simpleSelectQuery(ctx context.Context, db *sql.DB) {
 
 	log.Println("Simple Select query")
 
-	//langid := 2
-	rows, err := db.QueryContext(ctx, "SELECT * FROM language WHERE language_id=?", "2")
+	langid := 2
+	rows, err := db.QueryContext(ctx, "SELECT * FROM language WHERE language_id=?", langid)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -55,12 +55,15 @@ func simpleSelectPreparedQuery(ctx context.Context, db *sql.DB) {
 	log.Println("Simple prepared Select query")
 
 	stmt, err := db.PrepareContext(ctx, "SELECT * FROM language WHERE name=? AND last_update=?")
+	//stmt, err := db.PrepareContext(ctx, "SELECT * FROM language WHERE language_id=?")
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer stmt.Close()
 
+	//lang_id_sel := 4
 	rows, err := stmt.QueryContext(ctx, "Mandarin", "2020-12-23 07:12:12")
+	//rows, err := stmt.QueryContext(ctx, lang_id_sel)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -84,11 +87,11 @@ func testTransaction(ctx context.Context, db *sql.DB) {
 		log.Fatal(err)
 	}
 
-	//seq := 777
-	//id := 1
-	//_, execErr := tx.Exec("UPDATE _litestream_seq SET seq = ? WHERE id = ?", seq, id)
+	seq := 728
+	id := 1
+	_, execErr := tx.Exec("UPDATE _litestream_seq SET seq = ? WHERE id = ?", seq, id)
 
-	_, execErr := tx.Exec("UPDATE _litestream_seq SET seq = 777 WHERE id = 1")
+	//_, execErr := tx.Exec("UPDATE _litestream_seq SET seq = 777 WHERE id = 1")
 	if execErr != nil {
 		_ = tx.Rollback()
 		log.Fatal(execErr)
@@ -99,7 +102,7 @@ func testTransaction(ctx context.Context, db *sql.DB) {
 }
 
 func simpleUpdateQuery(ctx context.Context, db *sql.DB) {
-	_, err := db.ExecContext(ctx, "UPDATE _litestream_seq SET seq = 777 WHERE id = 1")
+	_, err := db.ExecContext(ctx, "UPDATE _litestream_seq SET seq = 727 WHERE id = 1")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -116,12 +119,12 @@ func main() {
 	}
 	defer db.Close()
 
-	//pingDB(ctx, db)
+	pingDB(ctx, db)
 
+	testTransaction(ctx, db)
 	simpleSelectPreparedQuery(ctx, db)
 	simpleUpdateQuery(ctx, db)
 	simpleSelectQuery(ctx, db)
-	//simpleUpdateQuery(ctx, db)
 }
 
 /*
