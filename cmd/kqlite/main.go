@@ -8,7 +8,7 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/kqlite/kqlite/pkg/core"
+	"github.com/kqlite/kqlite/pkg/pgwire"
 )
 
 func main() {
@@ -32,7 +32,7 @@ func run(ctx context.Context) error {
 
 	log.SetFlags(0)
 
-	server := core.NewServer(*addr, *dataDir)
+	server := pgwire.NewServer(*addr, *dataDir)
 	if err := server.Start(); err != nil {
 		return err
 	}
