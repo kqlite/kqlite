@@ -1,6 +1,6 @@
 export BIN ?= ${CURDIR}/bin
 
-GO_BUILD = go build -tags vtable -trimpath -o $(BIN)/kqlite ${CURDIR}/cmd/kqlite
+GO_BUILD = ENABLE_CGO=1 go build -tags vtable -trimpath -o $(BIN)/kqlite ${CURDIR}/cmd/kqlite
 
 # Make sure BIN is on the PATH
 export PATH := $(BIN):$(PATH)
@@ -69,7 +69,7 @@ fmt: ## Format source code.
 
 .PHONY: vet
 vet: ## Run go vet against code.
-	go vet ./...
+	ENABLE_CGO=1 go vet -tags vtable ./...
 
 .PHONY: vendor
 vendor: ## Runs go mod vendor
@@ -87,7 +87,7 @@ fmt-check:
 .PHONY: test
 test: ## Run unit tests.
 test: fmt vet
-	${GO} test ./... -cover -v -ginkgo.v -coverprofile=coverage.out
+	ENABLE_CGO=1 ${GO} test -tags vtable ./... -cover -v -ginkgo.v -coverprofile=coverage.out
 
 .PHONY: test-simple
 test-simple: ## Run unit tests without verbose/debug output.

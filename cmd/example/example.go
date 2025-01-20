@@ -87,7 +87,7 @@ func testTransaction(ctx context.Context, db *sql.DB) {
 		log.Fatal(err)
 	}
 
-	seq := 728
+	seq := 398
 	id := 1
 	_, execErr := tx.Exec("UPDATE _litestream_seq SET seq = ? WHERE id = ?", seq, id)
 
