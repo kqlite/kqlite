@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/kqlite/kqlite/pkg/sqlite"
+	"github.com/kqlite/kqlite/pkg/sysdb"
 	"github.com/mattn/go-sqlite3"
 )
 
@@ -78,7 +78,7 @@ func Open(dbPath string, fkEnabled, wal bool) (retDB *DB, retErr error) {
 func openSQLiteDB(dbPath string, fkEnabled, wal bool) (*DB, error) {
 	// Main RW connection
 	rwdsn := makeDSN(dbPath, ModeReadWrite, fkEnabled, wal)
-	rwdb, err := sql.Open(sqlite.DriverName, rwdsn)
+	rwdb, err := sql.Open(sysdb.DriverName, rwdsn)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +89,7 @@ func openSQLiteDB(dbPath string, fkEnabled, wal bool) (*DB, error) {
 
 	// Read-only connection
 	rodsn := makeDSN(dbPath, ModeReadOnly, fkEnabled, wal)
-	rodb, err := sql.Open(sqlite.DriverName, rodsn)
+	rodb, err := sql.Open(sysdb.DriverName, rodsn)
 	if err != nil {
 		return nil, err
 	}

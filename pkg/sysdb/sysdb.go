@@ -1,12 +1,11 @@
-package sqlite
+package sysdb
 
 import (
 	"database/sql"
 	"fmt"
 	"strings"
 
-	"github.com/kqlite/kqlite/pkg/pgtables"
-	"github.com/mattn/go-sqlite3"
+	sqlite3 "github.com/mattn/go-sqlite3"
 )
 
 const DriverName = "kqlite-sqlite3"
@@ -38,7 +37,7 @@ func init() {
 			if err := conn.RegisterFunc("version", version, true); err != nil {
 				return fmt.Errorf("cannot register version() function")
 			}
-			if err := conn.CreateModule("pg_database_module", &pgtables.PGDatabaseModule{}); err != nil {
+			if err := conn.CreateModule("pg_database_module", &PGDatabaseModule{}); err != nil {
 				return fmt.Errorf("cannot register pg_database module")
 			}
 			return nil

@@ -1,9 +1,9 @@
-package pgtables
+package sysdb
 
 import (
 	"fmt"
 
-	"github.com/mattn/go-sqlite3"
+	sqlite3 "github.com/mattn/go-sqlite3"
 )
 
 type PGDatabaseModule struct{}
