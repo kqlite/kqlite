@@ -126,8 +126,8 @@ func (server *DBServer) handleParseMessage(ctx context.Context, conn *ClientConn
 			break
 
 		case *pgproto3.Close:
-			// TODO 
-			return
+			// TODO
+			return nil
 		default:
 			return fmt.Errorf("unexpected message type during parse: %#v", msg)
 		}
