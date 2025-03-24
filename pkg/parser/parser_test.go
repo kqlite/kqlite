@@ -1,6 +1,7 @@
 package parser_test
 
 import (
+	"fmt"
 	"github.com/kqlite/kqlite/pkg/parser"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -79,6 +80,76 @@ var _ = Describe("Parser tests", Ordered, func() {
 		By("Verify query tables")
 		Expect(result[0].Tables).NotTo(BeEmpty())
 		Expect(result[0].Tables[0]).To(Equal("employees"))
+	})
+
+	It("Parse complex SELECT with Boolean expression.", func() {
+		sql := `
+		SELECT
+		(SELECT MAX(rkv.id) AS id FROM kine AS rkv),
+		(SELECT MAX(crkv.prev_revision) AS prev_revision FROM kine AS crkv WHERE crkv.name = 'compact_rev_key'),
+		maxkv.*
+		FROM (SELECT DISTINCT ON (name)
+			kv.id AS theid, kv.name, kv.created, kv.deleted, kv.create_revision, kv.prev_revision, kv.lease, kv.value, kv.old_value
+			FROM
+			kine AS kv
+				WHERE
+					kv.name LIKE $1 
+					AND kv.name > $2
+						ORDER BY kv.name, theid DESC
+							) AS maxkv
+								WHERE
+									maxkv.deleted = 0 OR $3
+										ORDER BY maxkv.name, maxkv.theid DESC`
+		result, err := parser.Parse(sql)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result).NotTo(BeEmpty())
+		Expect(result).To(HaveLen(1))
+
+		By("Verify query args/parameters")
+		Expect(result[0].ArgColumns).NotTo(BeEmpty())
+		Expect(result[0].ArgColumns).To(HaveLen(3))
+		//Expect(result[0].ArgColumns[0]).To(Equal("income"))
+		//Expect(result[0].ArgColumns[1]).To(Equal("age"))
+		//
+		//By("Verify query tables")
+		//Expect(result[0].Tables).NotTo(BeEmpty())
+		//Expect(result[0].Tables[0]).To(Equal("employees"))
+	})
+
+	It("Parse complex SELECT with anonymous parameter present", func() {
+		sql := `
+		SELECT *
+		FROM (
+			SELECT (
+		SELECT MAX(rkv.id) AS id
+		FROM kine AS rkv), (
+		SELECT MAX(crkv.prev_revision) AS prev_revision
+		FROM kine AS crkv
+		WHERE crkv.name = 'compact_rev_key'), kv.id AS theid, kv.name AS thename, kv.created, kv.deleted, kv.create_revision, kv.prev_revision, kv.lease, kv.value, kv.old_value
+			FROM kine AS kv
+			JOIN (
+				SELECT MAX(mkv.id) AS id
+				FROM kine AS mkv
+				WHERE
+					mkv.name LIKE $1
+					AND mkv.name > $2
+				GROUP BY mkv.name) AS maxkv
+				ON maxkv.id = kv.id
+			WHERE
+				kv.deleted = 0 OR
+				$3
+		) AS lkv
+		ORDER BY lkv.thename ASC`
+
+		result, err := parser.Parse(sql)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result).NotTo(BeEmpty())
+		Expect(result).To(HaveLen(1))
+
+		By("Verify query args/parameters")
+		Expect(result[0].ArgColumns).NotTo(BeEmpty())
+		Expect(result[0].ArgColumns).To(HaveLen(3))
+		fmt.Printf("result[0].ArgColumns %v\n", result[0].ArgColumns)
 	})
 
 	It("Parse multi SELECT Statement and WITH clause", func() {
