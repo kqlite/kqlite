@@ -109,7 +109,7 @@ func simpleUpdateQuery(ctx context.Context, db *sql.DB) {
 }
 
 func main() {
-	dataSourceName := "postgres://127.0.0.1:5432/sakila_master.db?sslmode=disable"
+	dataSourceName := "postgres://127.0.0.1:5432/sakila_master?sslmode=disable"
 	ctx, cancel := context.WithTimeout(context.TODO(), 10*time.Second)
 	defer cancel()
 
