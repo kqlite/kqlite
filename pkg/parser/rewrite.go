@@ -24,6 +24,8 @@ func RewriteQuery(q string) string {
 		return `SELECT 'SET'`
 	}
 
+	q = rewriteKine(q)
+
 	// Ignore this god forsaken query for pulling keywords.
 	if strings.Contains(q, `select string_agg(word, ',') from pg_catalog.pg_get_keywords()`) {
 		return `SELECT '' AS "string_agg" WHERE 1 = 2`
