@@ -2,15 +2,17 @@ package pgwire
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"math"
 	"math/big"
+	"strings"
 
 	"github.com/jackc/pgproto3/v2"
-	"github.com/jackc/pgtype"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/kqlite/kqlite/pkg/db"
 )
 
@@ -18,11 +20,18 @@ func toRowDescription(cols []*sql.ColumnType) *pgproto3.RowDescription {
 	var desc pgproto3.RowDescription
 	for _, col := range cols {
 		var typeOID uint32
+		format := 1
 		dbType := col.DatabaseTypeName()
+
 		if pgColType, exists := db.Typemap()[dbType]; exists {
 			typeOID = pgColType
 		} else {
-			typeOID = pgtype.TextOID
+			typeOID = pgtype.Int8OID
+			//typeOID = pgtype.TextOID
+		}
+
+		if typeOID == pgtype.TextOID {
+			format = 0
 		}
 
 		typeSize, ok := col.Length()
@@ -30,14 +39,22 @@ func toRowDescription(cols []*sql.ColumnType) *pgproto3.RowDescription {
 			typeSize = -1
 		}
 
+		colName := col.Name()
+		if len(colName) > 20 {
+			colName = colName[:20]
+		}
+
+		r := strings.NewReplacer(" ", "", "\n", "", "\t", "", ")", "", "(", "", ",", "", ".", "")
+		colName = r.Replace(colName)
+
 		desc.Fields = append(desc.Fields, pgproto3.FieldDescription{
-			Name:                 []byte(col.Name()),
+			Name:                 []byte(colName),
 			TableOID:             0,
 			TableAttributeNumber: 0,
 			DataTypeOID:          typeOID,
 			DataTypeSize:         int16(typeSize),
 			TypeModifier:         -1,
-			Format:               0,
+			Format:               int16(format),
 		})
 	}
 
@@ -59,7 +76,26 @@ func scanRow(rows *sql.Rows, cols []*sql.ColumnType) (*pgproto3.DataRow, error) 
 	// Convert to TEXT values to return over Postgres wire protocol.
 	row := pgproto3.DataRow{Values: make([][]byte, len(values))}
 	for i := range values {
-		row.Values[i] = []byte(fmt.Sprint(values[i]))
+		//row.Values[i] = []byte(fmt.Sprint(values[i]))
+
+		if i == 3 {
+			// TEXT
+			row.Values[i] = []byte(fmt.Sprint(values[i]))
+			continue
+		}
+
+		if i == 9 || i == 10 {
+			// Byte array
+			row.Values[i], _ = values[i].([]byte)
+			continue
+		}
+
+		// Int64
+		buf := []byte{}
+		buf = append(buf, 0, 0, 0, 0, 0, 0, 0, 0)
+		n, _ := values[i].(int64)
+		binary.BigEndian.PutUint64(buf[0:], uint64(n))
+		row.Values[i] = buf
 	}
 
 	return &row, nil
@@ -90,8 +126,115 @@ func encodeRows(rows *sql.Rows) ([]byte, error) {
 	return buf, nil
 }
 
-func parametersToValues(paramValues [][]byte, paramTypes []uint32) []interface{} {
-	if len(paramValues) == 0 || len(paramValues) == 0 {
+func toRowDescriptionNew(cols []*sql.ColumnType, oids []uint32) *pgproto3.RowDescription {
+	if len(cols) != len(oids) {
+		return nil
+	}
+
+	var desc pgproto3.RowDescription
+	for idx, col := range cols {
+		format := 1
+
+		typeSize, ok := col.Length()
+		if !ok {
+			typeSize = -1
+		}
+
+		colName := col.Name()
+		if len(colName) > 20 {
+			colName = colName[:20]
+		}
+
+		//r := strings.NewReplacer(" ", "", "\n", "", "\t", "", ")", "", "(", "", ",", "", ".", "")
+		//colName = r.Replace(colName)
+
+		typeOID := oids[idx]
+
+		if typeOID == pgtype.TextOID {
+			format = 0
+		}
+
+		desc.Fields = append(desc.Fields, pgproto3.FieldDescription{
+			Name:                 []byte(colName),
+			TableOID:             0,
+			TableAttributeNumber: 0,
+			DataTypeOID:          typeOID,
+			DataTypeSize:         int16(typeSize),
+			TypeModifier:         -1,
+			Format:               int16(format),
+		})
+	}
+
+	return &desc
+}
+
+func scanRowNew(rows *sql.Rows, cols []*sql.ColumnType, typeMap *pgtype.Map, oids *[]uint32) (*pgproto3.DataRow, error) {
+	refs := make([]interface{}, len(cols))
+	values := make([]interface{}, len(cols))
+	for i := range refs {
+		refs[i] = &values[i]
+	}
+
+	// Scan from SQLite database.
+	if err := rows.Scan(refs...); err != nil {
+		return nil, fmt.Errorf("scan: %w", err)
+	}
+
+	// Encode values to bytes to return over Postgres wire protocol.
+	row := pgproto3.DataRow{Values: make([][]byte, len(values))}
+	for i := range values {
+		// Populate OID's when scanning rows.
+		if len(*oids) < len(cols) {
+			*oids = append(*oids, db.ValueToOID(values[i]))
+		}
+
+		buf, err := typeMap.Encode((*oids)[i], pgtype.BinaryFormatCode, values[i], nil)
+		if err != nil {
+			return nil, err
+		}
+
+		// TODO
+		row.Values[i] = buf
+	}
+
+	return &row, nil
+}
+
+func encodeRowsNew(rows *sql.Rows, typeMap *pgtype.Map) ([]byte, error) {
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows: %w", err)
+	}
+
+	// Encode column header.
+	cols, err := rows.ColumnTypes()
+	if err != nil {
+		return nil, fmt.Errorf("column types: %w", err)
+	}
+
+	var buf []byte
+	oids := []uint32{}
+	var rowDescr *pgproto3.RowDescription
+	// Iterate over each row and encode it to the wire protocol.
+	for rows.Next() {
+		row, err := scanRowNew(rows, cols, typeMap, &oids)
+		if err != nil {
+			return nil, fmt.Errorf("scan: %w", err)
+		}
+
+		// Generate row description using values and column info.
+		if rowDescr == nil {
+			rowDescr = toRowDescriptionNew(cols, oids)
+			buf, _ = rowDescr.Encode(nil)
+		}
+
+		buf, _ = row.Encode(buf)
+	}
+
+	return buf, nil
+}
+
+func parametersToValues(paramValues [][]byte, paramTypes []uint32) []any {
+	if len(paramValues) == 0 || len(paramTypes) == 0 {
 		return nil
 	}
 
@@ -99,7 +242,7 @@ func parametersToValues(paramValues [][]byte, paramTypes []uint32) []interface{}
 		return nil
 	}
 
-	binds := make([]interface{}, len(paramValues))
+	binds := make([]any, len(paramValues))
 	for i := range paramValues {
 		switch paramTypes[i] {
 		case pgtype.Int2OID, pgtype.Int4OID, pgtype.Int8OID, pgtype.NumericOID:
@@ -124,12 +267,15 @@ func parametersToValues(paramValues [][]byte, paramTypes []uint32) []interface{}
 			continue
 
 		case pgtype.ByteaOID:
-			binds[i] = paramValues
+			binds[i] = paramValues[i]
 			continue
 
 		case pgtype.DateOID, pgtype.TimestampOID:
 			binds[i] = string(paramValues[i])
 			continue
+
+		default:
+			binds[i] = string(paramValues[i])
 		}
 	}
 
@@ -151,4 +297,17 @@ func getParameter(m map[string]string, k string) string {
 		return ""
 	}
 	return m[k]
+}
+
+// Initialize virtual table catalog.
+func initCatatog(dbcon *db.DB) error {
+	query := `CREATE VIRTUAL TABLE IF NOT EXISTS
+			  pg_database USING pg_database_module
+			  (oid, datname, datdba, encoding, datcollate, datctype, datistemplate, datallowconn, datconnlimit, datlastsysoid, datfrozenxid, datminmxid, dattablespace, datacl)`
+
+	if _, err := dbcon.ExecContext(context.Background(), query); err != nil {
+		return fmt.Errorf("create pg_database: %w", err)
+	}
+
+	return nil
 }
