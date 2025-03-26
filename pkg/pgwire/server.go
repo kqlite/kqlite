@@ -178,38 +178,32 @@ func (server *DBServer) serveConn(ctx context.Context, conn *ClientConn) error {
 			if err := conn.handleQuery(ctx, msg); err != nil {
 				fmt.Printf("error query message: %v", err)
 			}
-			continue
 
 		case *pgproto3.Parse:
 			if err := conn.handleParse(ctx, msg); err != nil {
 				fmt.Printf("error parse message: %v", err)
 			}
-			continue
 
 		case *pgproto3.Describe:
 			if err := conn.handleDescribe(ctx, msg); err != nil {
 				fmt.Printf("error describe message: %v", err)
 			}
-			continue
 
 		case *pgproto3.Sync:
 			err := writeMessages(conn, &pgproto3.ReadyForQuery{TxStatus: 'I'})
 			if err != nil {
 				return err
 			}
-			continue
 
 		case *pgproto3.Bind:
 			if err := conn.handleBind(ctx, msg); err != nil {
 				fmt.Printf("error bind message: %v", err)
 			}
-			continue
 
 		case *pgproto3.Execute:
 			if err := conn.handleExecute(ctx, msg); err != nil {
 				fmt.Printf("error execute message: %v", err)
 			}
-			continue
 
 		case *pgproto3.Terminate:
 			return nil
@@ -256,14 +250,17 @@ func (server *DBServer) handleConnStartup(ctx context.Context, conn *ClientConn)
 }
 
 func (server *DBServer) handleStartupMessage(ctx context.Context, conn *ClientConn, msg *pgproto3.StartupMessage) (err error) {
-	// log.Printf("received startup message: %#v", msg)
-
 	// Validate
 	name := getParameter(msg.Parameters, "database")
 	if name == "" {
 		return writeMessages(conn, &pgproto3.ErrorResponse{Message: "database required"})
 	} else if strings.Contains(name, "..") {
 		return writeMessages(conn, &pgproto3.ErrorResponse{Message: "invalid database name"})
+	}
+
+	appName := getParameter(msg.Parameters, "application_name")
+	if appName == "psql" {
+		conn.textDataOnly = true
 	}
 
 	// TODO implement authentication.

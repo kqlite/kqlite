@@ -126,14 +126,14 @@ func encodeRows(rows *sql.Rows) ([]byte, error) {
 	return buf, nil
 }
 
-func toRowDescriptionNew(cols []*sql.ColumnType, oids []uint32) *pgproto3.RowDescription {
+func toRowDescriptionNew(cols []*sql.ColumnType, oids []uint32, textDataOnly bool) *pgproto3.RowDescription {
 	if len(cols) != len(oids) {
 		return nil
 	}
 
 	var desc pgproto3.RowDescription
 	for idx, col := range cols {
-		format := 1
+		format := pgtype.BinaryFormatCode
 
 		typeSize, ok := col.Length()
 		if !ok {
@@ -141,17 +141,11 @@ func toRowDescriptionNew(cols []*sql.ColumnType, oids []uint32) *pgproto3.RowDes
 		}
 
 		colName := col.Name()
-		if len(colName) > 20 {
-			colName = colName[:20]
-		}
-
-		//r := strings.NewReplacer(" ", "", "\n", "", "\t", "", ")", "", "(", "", ",", "", ".", "")
-		//colName = r.Replace(colName)
-
 		typeOID := oids[idx]
 
-		if typeOID == pgtype.TextOID {
-			format = 0
+		if textDataOnly || typeOID == pgtype.TextOID {
+			typeOID = pgtype.TextOID
+			format = pgtype.TextFormatCode
 		}
 
 		desc.Fields = append(desc.Fields, pgproto3.FieldDescription{
@@ -168,7 +162,7 @@ func toRowDescriptionNew(cols []*sql.ColumnType, oids []uint32) *pgproto3.RowDes
 	return &desc
 }
 
-func scanRowNew(rows *sql.Rows, cols []*sql.ColumnType, typeMap *pgtype.Map, oids *[]uint32) (*pgproto3.DataRow, error) {
+func scanRowNew(rows *sql.Rows, cols []*sql.ColumnType, typeMap *pgtype.Map, oids *[]uint32, textDataOnly bool) (*pgproto3.DataRow, error) {
 	refs := make([]interface{}, len(cols))
 	values := make([]interface{}, len(cols))
 	for i := range refs {
@@ -188,7 +182,14 @@ func scanRowNew(rows *sql.Rows, cols []*sql.ColumnType, typeMap *pgtype.Map, oid
 			*oids = append(*oids, db.ValueToOID(values[i]))
 		}
 
-		buf, err := typeMap.Encode((*oids)[i], pgtype.BinaryFormatCode, values[i], nil)
+		var err error
+		var buf []byte
+		if !textDataOnly {
+			buf, err = typeMap.Encode((*oids)[i], pgtype.BinaryFormatCode, values[i], nil)
+		} else {
+			buf, err = typeMap.Encode((*oids)[i], pgtype.TextFormatCode, values[i], nil)
+		}
+
 		if err != nil {
 			return nil, err
 		}
@@ -200,7 +201,7 @@ func scanRowNew(rows *sql.Rows, cols []*sql.ColumnType, typeMap *pgtype.Map, oid
 	return &row, nil
 }
 
-func encodeRowsNew(rows *sql.Rows, typeMap *pgtype.Map) ([]byte, error) {
+func encodeRowsNew(rows *sql.Rows, typeMap *pgtype.Map, textDataOnly bool) ([]byte, error) {
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("rows: %w", err)
 	}
@@ -216,14 +217,14 @@ func encodeRowsNew(rows *sql.Rows, typeMap *pgtype.Map) ([]byte, error) {
 	var rowDescr *pgproto3.RowDescription
 	// Iterate over each row and encode it to the wire protocol.
 	for rows.Next() {
-		row, err := scanRowNew(rows, cols, typeMap, &oids)
+		row, err := scanRowNew(rows, cols, typeMap, &oids, textDataOnly)
 		if err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
 		}
 
 		// Generate row description using values and column info.
 		if rowDescr == nil {
-			rowDescr = toRowDescriptionNew(cols, oids)
+			rowDescr = toRowDescriptionNew(cols, oids, textDataOnly)
 			buf, _ = rowDescr.Encode(nil)
 		}
 

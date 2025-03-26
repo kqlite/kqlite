@@ -16,7 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	pg_query "github.com/pganalyze/pg_query_go/v5"
+	pg_query "github.com/pganalyze/pg_query_go/v6"
 )
 
 // Represents a database client session.
@@ -34,6 +34,9 @@ type ClientConn struct {
 
 	// Map of prepared portals for this client session.
 	portals map[string]*PreparedPortal
+
+	// Forcing to send data in Text format is required when this is a connection from psql client.
+	textDataOnly bool
 }
 
 func timer(name string) func() {
@@ -48,11 +51,12 @@ func timer(name string) func() {
 
 func NewClientConn(conn net.Conn) *ClientConn {
 	return &ClientConn{
-		Conn:      conn,
-		backend:   pgproto3.NewBackend(conn, conn),
-		prepStmts: map[string]*PreparedStatement{},
-		portals:   map[string]*PreparedPortal{},
-		typeMap:   pgtype.NewMap(),
+		Conn:         conn,
+		backend:      pgproto3.NewBackend(conn, conn),
+		prepStmts:    map[string]*PreparedStatement{},
+		portals:      map[string]*PreparedPortal{},
+		typeMap:      pgtype.NewMap(),
+		textDataOnly: false,
 	}
 }
 
@@ -100,7 +104,7 @@ func (conn *ClientConn) handleQuery(ctx context.Context, msg *pgproto3.Query) er
 	// Extract all statements present in the SQL query and do a syntax validation.
 	parserResult, err := parser.Parse(query)
 	if err != nil {
-		log.Printf("parse query error: %s, err: %s\n", query, err.Error())
+		log.Printf("internal parse query error: %s, err: %s\n", query, err.Error())
 		return writeMessages(conn,
 			&pgproto3.ErrorResponse{Message: err.Error()},
 			&pgproto3.ReadyForQuery{TxStatus: 'I'},
@@ -118,10 +122,28 @@ func (conn *ClientConn) handleQuery(ctx context.Context, msg *pgproto3.Query) er
 			})
 		}
 	} else {
-		statements = append(statements, db.Statement{
-			Query:   query,
-			CmdType: db.CMD_UNKNOWN,
-		})
+		rows, err := conn.db.QueryContext(context.TODO(), query)
+		if err != nil {
+			log.Printf("execute query, err: %s\n", err.Error())
+			return writeMessages(conn,
+				&pgproto3.ErrorResponse{Message: err.Error()},
+				&pgproto3.ReadyForQuery{TxStatus: 'I'})
+		}
+		defer rows.Close()
+
+		// Encode result rows to PG wire data rows.
+		buf, err := encodeRowsNew(rows, conn.typeMap, conn.textDataOnly)
+		if err != nil {
+			return err
+		}
+
+		buf, _ = (&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")}).Encode(buf)
+		if _, err := conn.Write(buf); err != nil {
+			return err
+		}
+
+		// Send command complete along with the result data.
+		return writeMessages(conn, &pgproto3.ReadyForQuery{TxStatus: 'I'})
 	}
 
 	// Execute all statements part of the SQL query.
@@ -139,12 +161,10 @@ func (conn *ClientConn) handleQuery(ctx context.Context, msg *pgproto3.Query) er
 		// Handle error from a single statement execution.
 		if resp.Error != nil {
 			log.Printf("query %s, execute stmt error: %s\n", query, resp.Error.Error())
-			err := writeMessages(conn,
-				&pgproto3.ErrorResponse{Message: resp.Error.Error()},
-				&pgproto3.ReadyForQuery{TxStatus: 'I'})
-			if err != nil {
+			if err := writeMessages(conn, &pgproto3.ErrorResponse{Message: resp.Error.Error()}); err != nil {
 				return err
 			}
+			continue
 		}
 
 		var err error
@@ -152,8 +172,7 @@ func (conn *ClientConn) handleQuery(ctx context.Context, msg *pgproto3.Query) er
 		if resp.Rows != nil {
 			defer resp.Rows.Close()
 			// Encode result rows to PG wire data rows.
-			// buf, err = encodeRows(resp.Rows)
-			buf, err = encodeRowsNew(resp.Rows, conn.typeMap)
+			buf, err = encodeRowsNew(resp.Rows, conn.typeMap, conn.textDataOnly)
 			if err != nil {
 				return err
 			}
@@ -214,9 +233,6 @@ func (conn *ClientConn) handleExecute(ctx context.Context, msg *pgproto3.Execute
 	stmt.Parameters = portal.Qargs
 	statements := []db.Statement{stmt}
 
-	// DEBUG
-	//fmt.Printf("params : %v \n", statements[0].Parameters)
-
 	// Execute SQL statement.
 	response, err := conn.exeqc.Request(statements)
 	if err != nil {
@@ -242,7 +258,7 @@ func (conn *ClientConn) handleExecute(ctx context.Context, msg *pgproto3.Execute
 
 		// Encode result rows to PG wire data rows.
 		// buf, err = encodeRows(resp.Rows)
-		buf, err = encodeRowsNew(resp.Rows, conn.typeMap)
+		buf, err = encodeRowsNew(resp.Rows, conn.typeMap, conn.textDataOnly)
 		if err != nil {
 			return err
 		}
