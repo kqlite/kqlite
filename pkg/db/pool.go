@@ -27,8 +27,6 @@ func openDBforWrite(dbPath string, fkEnabled, wal bool) (*sql.DB, error) {
 			return sqldb, err
 		}
 	}
-
-	return nil, nil
 }
 
 // Clear and flush the global DB connection pool

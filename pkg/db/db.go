@@ -255,11 +255,6 @@ func (db *DB) StmtReadOnlyWithConn(sql string, conn *sql.Conn) (bool, error) {
 
 // Checks if statemt must return rows.
 func (db *DB) StmtReturnsRows(stmt Statement) bool {
-	//readOnly, err := db.StmtReadOnly(stmt.Query)
-	//if err != nil || readOnly {
-	//	return true
-	//}
-
 	if stmt.ReturnsRows || stmt.CmdType == CMD_SELECT {
 		return true
 	}
