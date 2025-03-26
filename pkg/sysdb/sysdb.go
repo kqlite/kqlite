@@ -15,7 +15,7 @@ const DriverName = "kqlite-sqlite3"
 func init() {
 	sql.Register(DriverName, &sqlite3.SQLiteDriver{
 		ConnectHook: func(conn *sqlite3.SQLiteConn) error {
-			if err := conn.RegisterFunc("current_catalog", currentCatalog, true); err != nil {
+			if err := conn.RegisterFunc("current_catalog", current_catalog, true); err != nil {
 				return fmt.Errorf("cannot register current_catalog() function")
 			}
 
@@ -24,7 +24,7 @@ func init() {
 			}
 
 			if err := conn.RegisterFunc("current_user", currentUser, true); err != nil {
-				return fmt.Errorf("cannot register current_schema() function")
+				return fmt.Errorf("cannot register current_user() function")
 			}
 
 			if err := conn.RegisterFunc("session_user", sessionUser, true); err != nil {
@@ -59,8 +59,11 @@ func init() {
 	})
 }
 
-func currentCatalog() string { return "public" }
-func currentSchema() string  { return "public" }
+func current_catalog() string {
+	return "public" /*"kqlite v0.0.0"*/
+}
+
+func currentSchema() string { return "public" }
 
 func currentUser() string { return "sqlite3" }
 func sessionUser() string { return "sqlite3" }
@@ -74,7 +77,7 @@ func show(name string) string { return "" }
 
 // Returns Total disk space used by the specified table, including all indexes and TOAST data.
 func pg_total_relation_size(name string) int64 {
-	if finfo, err := os.Stat(filepath.Join(os.Getenv("DATA_DIR"), name)); err != nil {
+	if finfo, err := os.Stat(filepath.Join(os.Getenv("DATA_DIR"), name+".db")); err != nil {
 		return -1
 	} else {
 		return finfo.Size()
