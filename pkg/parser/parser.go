@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	pg_query "github.com/pganalyze/pg_query_go/v5"
+	pg_query "github.com/pganalyze/pg_query_go/v6"
 )
 
 type parserStmtWalker struct {
@@ -241,6 +241,10 @@ func Parse(sql string) ([]ParserStmtResult, error) {
 	}
 
 	if isSpecialQuery(sql) {
+		return result, nil
+	}
+
+	if isSystemFunc(sql) {
 		return result, nil
 	}
 

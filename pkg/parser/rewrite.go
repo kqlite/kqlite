@@ -6,6 +6,11 @@ import (
 	"strings"
 )
 
+func isSystemFunc(sql string) bool {
+	var re = regexp.MustCompile(`current_catalog|current_schema|current_user|session_user|user`)
+	return re.MatchString(sql)
+}
+
 // Replace query argument stubs like '?' with $n
 func replaceArgStubs(sql string) string {
 	regex := regexp.MustCompile(`\?`)

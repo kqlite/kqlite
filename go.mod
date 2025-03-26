@@ -6,13 +6,13 @@ require (
 	github.com/benbjohnson/litestream v0.3.13
 	github.com/go-logr/logr v1.4.2
 	github.com/go-logr/zapr v1.3.0
+	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
 	github.com/jackc/pgproto3/v2 v2.3.3
-	github.com/jackc/pgtype v1.14.4
 	github.com/jackc/pgx/v5 v5.7.1
 	github.com/mattn/go-sqlite3 v1.14.24
 	github.com/onsi/ginkgo/v2 v2.19.0
 	github.com/onsi/gomega v1.33.1
-	github.com/pganalyze/pg_query_go/v5 v5.1.0
+	github.com/pganalyze/pg_query_go/v6 v6.0.0
 	github.com/pkg/sftp v1.13.7
 	go.uber.org/zap v1.26.0
 	golang.org/x/crypto v0.27.0
@@ -32,7 +32,6 @@ require (
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/pprof v0.0.0-20240525223248-4bfdf5a9a2af // indirect
 	github.com/jackc/chunkreader/v2 v2.0.1 // indirect
-	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438 // indirect
 	github.com/jackc/pgio v1.0.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
