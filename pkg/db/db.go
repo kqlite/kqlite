@@ -194,11 +194,34 @@ func (db *DB) Close() error {
 	return db.rodb.Close()
 }
 
+// A tiny wrapper around DB.Exec.
+// Executes a query without returning any rows. The args are for any placeholder parameters in the query.
+func (db *DB) Exec(query string, args ...any) (sql.Result, error) {
+	if query != "" {
+		return db.rwdb.Exec(query, args...)
+	}
+	return nil, nil
+}
+
 // A tiny wrapper around DB.ExecContext.
 // Executes a query without returning any rows. The args are for any placeholder parameters in the query.
 func (db *DB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	if query != "" {
-		return db.rwdb.ExecContext(context.Background(), query, args...)
+		return db.rwdb.ExecContext(ctx, query, args...)
+	}
+	return nil, nil
+}
+
+// A tiny wrapper around DB.Query.
+// Executes a query that returns rows, typically a SELECT. The args are for any placeholder parameters in the query.
+func (db *DB) Query(query string, args ...any) (*sql.Rows, error) {
+	if query != "" {
+		ro, _ := db.StmtReadOnly(query)
+		if ro {
+			return db.rodb.Query(query, args...)
+		} else {
+			return db.rwdb.Query(query, args...)
+		}
 	}
 	return nil, nil
 }
@@ -209,9 +232,9 @@ func (db *DB) QueryContext(ctx context.Context, query string, args ...any) (*sql
 	if query != "" {
 		ro, _ := db.StmtReadOnly(query)
 		if ro {
-			return db.rodb.QueryContext(context.Background(), query, args...)
+			return db.rodb.QueryContext(ctx, query, args...)
 		} else {
-			return db.rwdb.QueryContext(context.Background(), query, args...)
+			return db.rwdb.QueryContext(ctx, query, args...)
 		}
 	}
 	return nil, nil
