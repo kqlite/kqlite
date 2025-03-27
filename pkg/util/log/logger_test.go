@@ -1,4 +1,4 @@
-package utils_test
+package log_test
 
 import (
 	"os"
@@ -6,27 +6,27 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/kqlite/kqlite/pkg/utils"
+	"github.com/kqlite/kqlite/pkg/util/log"
 )
 
 var _ = Describe("logger", func() {
 	It("Simple create", func() {
-		log := utils.CreateLogger("", utils.LogLevelInfo, "")
-		log.Info("Logger created")
-		Expect(log.Enabled()).To(BeTrue())
+		logger := log.CreateLogger("", log.LogLevelInfo, "")
+		logger.Info("Logger created")
+		Expect(logger.Enabled()).To(BeTrue())
 	})
 	It("Set log level", func() {
-		log := utils.CreateLogger("", utils.LogLevelDebug, "")
-		log.V(1).Info("Logger created with log level 1")
-		log.V(2).Info("Messgae with log level 2")
-		Expect(log.Enabled()).To(BeTrue())
+		logger := log.CreateLogger("", log.LogLevelDebug, "")
+		logger.V(1).Info("Logger created with log level 1")
+		logger.V(2).Info("Messgae with log level 2")
+		Expect(logger.Enabled()).To(BeTrue())
 	})
 	It("Set log file output", func() {
 		logFilename := "logout.log"
 
-		log := utils.CreateLogger("", utils.LogLevelInfo, logFilename)
-		log.Info("Logger created")
-		Expect(log.Enabled()).To(BeTrue())
+		logger := log.CreateLogger("", log.LogLevelInfo, logFilename)
+		logger.Info("Logger created")
+		Expect(logger.Enabled()).To(BeTrue())
 		logf, err := os.Open(logFilename)
 		Expect(err).NotTo(HaveOccurred())
 		b := make([]byte, 256)

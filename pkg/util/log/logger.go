@@ -1,12 +1,12 @@
-package utils
+package log
 
 import (
 	"os"
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/kqlite/kqlite/pkg/util/zap"
 	"go.uber.org/zap/zapcore"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 const (

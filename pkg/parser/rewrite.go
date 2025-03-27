@@ -6,6 +6,11 @@ import (
 	"strings"
 )
 
+func isSystemFunc(sql string) bool {
+	var re = regexp.MustCompile(`current_catalog|current_schema|current_user|session_user|user`)
+	return re.MatchString(sql)
+}
+
 // Replace query argument stubs like '?' with $n
 func replaceArgStubs(sql string) string {
 	regex := regexp.MustCompile(`\?`)
@@ -23,6 +28,8 @@ func RewriteQuery(q string) string {
 	if strings.HasPrefix(q, "SET ") {
 		return `SELECT 'SET'`
 	}
+
+	q = rewriteKine(q)
 
 	// Ignore this god forsaken query for pulling keywords.
 	if strings.Contains(q, `select string_agg(word, ',') from pg_catalog.pg_get_keywords()`) {

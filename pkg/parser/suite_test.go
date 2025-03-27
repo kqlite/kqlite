@@ -8,7 +8,7 @@ import (
 
 	"github.com/kqlite/kqlite/pkg/parser"
 
-	pg_query "github.com/pganalyze/pg_query_go/v5"
+	pg_query "github.com/pganalyze/pg_query_go/v6"
 )
 
 type OnVisitFn func(*pg_query.Node) (v parser.Visitor, err error)

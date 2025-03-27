@@ -1,7 +1,7 @@
 package parser
 
 import (
-	pg_query "github.com/pganalyze/pg_query_go/v5"
+	pg_query "github.com/pganalyze/pg_query_go/v6"
 )
 
 // A Visitor's Visit method is invoked for each node encountered by Walk.

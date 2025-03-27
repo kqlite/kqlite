@@ -30,6 +30,10 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("required: -data-dir PATH")
 	}
 
+	if err := os.Setenv("DATA_DIR", *dataDir); err != nil {
+		return err
+	}
+
 	log.SetFlags(0)
 
 	server := pgwire.NewServer(*addr, *dataDir)

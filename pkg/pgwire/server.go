@@ -9,8 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
-	"github.com/jackc/pgproto3/v2"
+	"github.com/jackc/pgx/v5/pgproto3"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/kqlite/kqlite/pkg/db"
@@ -19,34 +20,34 @@ import (
 // Postgres settings.
 const (
 	ServerVersion = "14.0.0"
+	systemDB      = "kqlite.db"
 )
 
 // Represents the database server to serve client connections.
 type DBServer struct {
-	listener    net.Listener   // Network listener
-	store       sync.Map       // Database storage access
-	connections sync.Map       // Client network connections
-	group       errgroup.Group // Global goroutine group
+	// Network listener.
+	listener net.Listener
 
-	ctx    context.Context // Global server context
+	// Client network connections.
+	connections sync.Map
+
+	// Global goroutine group.
+	group errgroup.Group
+
+	// System database, storing system related data.
+	systemdb *db.DB
+
+	// Global server context
+	ctx    context.Context
 	cancel func()
 
-	Address string // Bind address to listen to Postgres wire protocol.
-	DataDir string // Directory that holds SQLite databases.
-}
+	// Bind address to listen to Postgres wire protocol.
+	Address string
 
-type ClientConn struct {
-	net.Conn
-	backend *pgproto3.Backend
-	db      *db.DB
-	exeqc   *db.ExecuteQueryContext
-}
+	// Directory that holds SQLite databases.
+	DataDir string
 
-func NewClientConn(conn net.Conn) *ClientConn {
-	return &ClientConn{
-		Conn:    conn,
-		backend: pgproto3.NewBackend(pgproto3.NewChunkReader(conn), conn),
-	}
+	connCounter int32
 }
 
 func NewServer(address, datadir string) *DBServer {
@@ -61,7 +62,13 @@ func NewServer(address, datadir string) *DBServer {
 // Starts the Database server.
 func (server *DBServer) Start() (err error) {
 	// Ensure data directory exists.
-	if _, err := os.Stat(server.DataDir); err != nil {
+	if _, err = os.Stat(server.DataDir); err != nil {
+		return err
+	}
+
+	// Open connection to the system database.
+	server.systemdb, err = db.Open(filepath.Join(server.DataDir, systemDB), false, false)
+	if err != nil {
 		return err
 	}
 
@@ -100,6 +107,9 @@ func (server *DBServer) Stop() (err error) {
 	})
 	server.connections.Clear()
 
+	// Clear gloabal database connections pool.
+	db.ClearPool()
+
 	// Wait for goroutine's to finish.
 	if err := server.group.Wait(); err != nil {
 		return err
@@ -121,8 +131,20 @@ func (server *DBServer) serve() error {
 
 		log.Println("connection accepted: ", conn.RemoteAddr())
 
+		atomic.AddInt32(&server.connCounter, 1)
+		fmt.Printf("server.connCounter: %d\n", atomic.LoadInt32(&server.connCounter))
+
 		server.group.Go(func() error {
-			defer conn.Close()
+			defer func() {
+				if conn.db != nil {
+					conn.db.Close()
+				}
+				conn.Close()
+				server.connections.Delete(conn)
+
+				atomic.AddInt32(&server.connCounter, -1)
+				fmt.Printf("server.connCounter: %d\n", atomic.LoadInt32(&server.connCounter))
+			}()
 
 			if err := server.serveConn(server.ctx, conn); err != nil && server.ctx.Err() == nil {
 				log.Printf("connection error, closing: %s", err)
@@ -149,35 +171,52 @@ func (server *DBServer) serveConn(ctx context.Context, conn *ClientConn) error {
 			return fmt.Errorf("receive message: %w", err)
 		}
 
-		log.Printf("[recv] %#v", msg)
+		//log.Printf("[%s] [recv] %#v", conn.RemoteAddr().String(), msg)
 
 		switch msg := msg.(type) {
 		case *pgproto3.Query:
-			if err := server.handleQueryMessage(ctx, conn, msg); err != nil {
-				return fmt.Errorf("query message: %w", err)
+			if err := conn.handleQuery(ctx, msg); err != nil {
+				fmt.Printf("error query message: %v", err)
 			}
-			continue
 
 		case *pgproto3.Parse:
-			if err := server.handleParseMessage(ctx, conn, msg); err != nil {
-				return fmt.Errorf("parse message: %w", err)
+			if err := conn.handleParse(ctx, msg); err != nil {
+				fmt.Printf("error parse message: %v", err)
 			}
-			continue
+
+		case *pgproto3.Describe:
+			if err := conn.handleDescribe(ctx, msg); err != nil {
+				fmt.Printf("error describe message: %v", err)
+			}
 
 		case *pgproto3.Sync:
-			err := writeMessages(conn,
-				&pgproto3.ReadyForQuery{TxStatus: 'I'})
+			err := writeMessages(conn, &pgproto3.ReadyForQuery{TxStatus: 'I'})
 			if err != nil {
 				return err
 			}
-			continue
+
+		case *pgproto3.Bind:
+			if err := conn.handleBind(ctx, msg); err != nil {
+				fmt.Printf("error bind message: %v", err)
+			}
+
+		case *pgproto3.Execute:
+			if err := conn.handleExecute(ctx, msg); err != nil {
+				fmt.Printf("error execute message: %v", err)
+			}
 
 		case *pgproto3.Terminate:
-			return conn.Close()
-			// return nil // exit
+			return nil
 
 		case *pgproto3.Close:
-			return conn.Close()
+			if err := conn.handleClose(ctx, msg); err != nil {
+				fmt.Printf("error close message: %v", err)
+			}
+			continue
+
+		case *pgproto3.CancelRequest:
+			fmt.Printf("got cancel request message type: %#v", msg)
+			return nil
 
 		default:
 			return fmt.Errorf("unexpected message type: %#v", msg)
@@ -186,6 +225,7 @@ func (server *DBServer) serveConn(ctx context.Context, conn *ClientConn) error {
 }
 
 func (server *DBServer) handleConnStartup(ctx context.Context, conn *ClientConn) error {
+	defer timer("handleConnStartup")()
 	for {
 		msg, err := conn.backend.ReceiveStartupMessage()
 		if err != nil {
@@ -210,8 +250,6 @@ func (server *DBServer) handleConnStartup(ctx context.Context, conn *ClientConn)
 }
 
 func (server *DBServer) handleStartupMessage(ctx context.Context, conn *ClientConn, msg *pgproto3.StartupMessage) (err error) {
-	log.Printf("received startup message: %#v", msg)
-
 	// Validate
 	name := getParameter(msg.Parameters, "database")
 	if name == "" {
@@ -220,15 +258,25 @@ func (server *DBServer) handleStartupMessage(ctx context.Context, conn *ClientCo
 		return writeMessages(conn, &pgproto3.ErrorResponse{Message: "invalid database name"})
 	}
 
-	// TODO Check if database exists and validate DB !!!
+	appName := getParameter(msg.Parameters, "application_name")
+	if appName == "psql" {
+		conn.textDataOnly = true
+	}
+
 	// TODO implement authentication.
 
-	// Open SQL database.
-	conn.db, err = db.Open(filepath.Join(server.DataDir, name), false, false)
-	if err != nil {
+	walEnabled := true
+	fkEnabled := false
+	// Open connection to SQL database.
+	dbfilename := name + ".db"
+	if conn.db, err = db.Open(filepath.Join(server.DataDir, dbfilename), fkEnabled, walEnabled); err != nil {
 		return err
 	}
-	server.store.Store(name, conn.db)
+
+	// Initialize postgres catalog virtual tables.
+	if err = initCatatog(conn.db); err != nil {
+		return err
+	}
 
 	return writeMessages(conn,
 		&pgproto3.AuthenticationOk{},

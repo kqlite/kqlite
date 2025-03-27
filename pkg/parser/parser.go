@@ -1,10 +1,11 @@
 package parser
 
 import (
+	//"fmt"
 	"slices"
 	"strings"
 
-	pg_query "github.com/pganalyze/pg_query_go/v5"
+	pg_query "github.com/pganalyze/pg_query_go/v6"
 )
 
 type parserStmtWalker struct {
@@ -12,17 +13,19 @@ type parserStmtWalker struct {
 	// For SELECT, DELETE and UPDATE statements arguments are extracted from the SQL query expressions.
 	exprLocation  int      // Unique Location of the expression found in the SQL statement.
 	exprColumns   []string // Expression condition columns extracted.
+	boolExprFound bool
 	insertStmt    bool     // INSERT statement node located.
 	updateStmt    bool     // UPDATE statement node located.
 	targetColumns []string // INSERT,UPDATE statement target expression columns extracted.
 }
 
 type ParserStmtResult struct {
-	Tables     []string                     // Tables referenced in the statement.
-	Sql        string                       // Statement SQL text.
-	ArgColumns []string                     // Statement referenced columns as params/arguments names.
-	SqlCmd     pg_query.CmdType             // SQL command. (Ex. SELECT, INSERT, UPDATE, DELETE, ALTER ...)
-	TxCmd      pg_query.TransactionStmtKind // Transaction command (Ex. BEGIN, COMMIT, ROLLBACK...)
+	Tables      []string                     // Tables referenced in the statement.
+	Sql         string                       // Statement SQL text.
+	ArgColumns  []string                     // Statement referenced columns as params/arguments names.
+	SqlCmd      pg_query.CmdType             // SQL command. (Ex. SELECT, INSERT, UPDATE, DELETE ...)
+	TxCmd       pg_query.TransactionStmtKind // Transaction command (Ex. BEGIN, COMMIT, ROLLBACK...)
+	ReturnsRows bool                         // Indicates whether statement returns rows (ex. RETURNING clause in INSERT, UPDATE, DELETE ..)
 }
 
 func (walker *parserStmtWalker) getTableName(rangevar *pg_query.RangeVar) {
@@ -73,17 +76,20 @@ func (walker *parserStmtWalker) Visit(node *pg_query.Node) (v Visitor, err error
 		walker.insertStmt = true
 		walker.getTableName(n.InsertStmt.GetRelation())
 		walker.setCommand(pg_query.CmdType_CMD_INSERT)
+		walker.result.ReturnsRows = (len(n.InsertStmt.GetReturningList()) != 0)
 		break
 
 	case *pg_query.Node_DeleteStmt:
 		walker.getTableName(n.DeleteStmt.GetRelation())
 		walker.setCommand(pg_query.CmdType_CMD_DELETE)
+		walker.result.ReturnsRows = (len(n.DeleteStmt.GetReturningList()) != 0)
 		break
 
 	case *pg_query.Node_UpdateStmt:
 		walker.updateStmt = true
 		walker.getTableName(n.UpdateStmt.GetRelation())
 		walker.setCommand(pg_query.CmdType_CMD_UPDATE)
+		walker.result.ReturnsRows = (len(n.UpdateStmt.GetReturningList()) != 0)
 		break
 
 	case *pg_query.Node_RangeVar:
@@ -95,6 +101,10 @@ func (walker *parserStmtWalker) Visit(node *pg_query.Node) (v Visitor, err error
 		if walker.exprLocation == 0 {
 			walker.exprLocation = int(n.AExpr.GetLocation())
 		}
+		break
+
+	case *pg_query.Node_BoolExpr:
+		walker.boolExprFound = true
 		break
 
 	case *pg_query.Node_ColumnRef:
@@ -126,6 +136,12 @@ func (walker *parserStmtWalker) Visit(node *pg_query.Node) (v Visitor, err error
 				walker.result.ArgColumns = append(walker.result.ArgColumns, walker.targetColumns[paramRef-1])
 			}
 			break
+		}
+
+		if walker.boolExprFound {
+			walker.result.ArgColumns = append(walker.result.ArgColumns, "boolean")
+		} else {
+			walker.result.ArgColumns = append(walker.result.ArgColumns, "blob")
 		}
 
 	case *pg_query.Node_ResTarget:
@@ -165,6 +181,11 @@ func (walker *parserStmtWalker) VisitEnd(node *pg_query.Node) error {
 			walker.exprColumns = []string{}
 		}
 		break
+
+	case *pg_query.Node_BoolExpr:
+		walker.boolExprFound = false
+		break
+
 	}
 	return nil
 }
@@ -193,10 +214,37 @@ func (walker *parserStmtWalker) getStatement(sql string, stmt *pg_query.RawStmt)
 	}
 }
 
+// Parser supports only the most common queries used for manipulating data.
+// Special queries are not handled at all.
+func isSpecialQuery(sql string) bool {
+	q := strings.ToUpper(strings.TrimSpace(sql))
+	if strings.HasPrefix(q, "SELECT") ||
+		strings.HasPrefix(q, "INSERT") ||
+		strings.HasPrefix(q, "UPDATE") ||
+		strings.HasPrefix(q, "DELETE") ||
+		strings.HasPrefix(q, "WITH") ||
+		strings.HasPrefix(q, "BEGIN") ||
+		strings.HasPrefix(q, "COMMIT") ||
+		strings.HasPrefix(q, "END") ||
+		strings.HasPrefix(q, "ROLLBACK") {
+		return false
+	}
+
+	return true
+}
+
 // Parse a SQL query string, can have multiple statements.
 func Parse(sql string) ([]ParserStmtResult, error) {
 	var result []ParserStmtResult
 	if sql == "" {
+		return result, nil
+	}
+
+	if isSpecialQuery(sql) {
+		return result, nil
+	}
+
+	if isSystemFunc(sql) {
 		return result, nil
 	}
 
