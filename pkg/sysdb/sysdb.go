@@ -54,6 +54,31 @@ func init() {
 			if err := conn.CreateModule("pg_database_module", &PGDatabaseModule{}); err != nil {
 				return fmt.Errorf("cannot register pg_database module")
 			}
+
+			if err := conn.CreateModule("pg_type_module", &pgTypeModule{}); err != nil {
+				return fmt.Errorf("cannot register pg_type module")
+			}
+
+			if err := conn.CreateModule("pg_settings_module", &pgSettingsModule{}); err != nil {
+				return fmt.Errorf("cannot register pg_settings module")
+			}
+
+			if err := conn.CreateModule("pg_range_module", &pgRangeModule{}); err != nil {
+				return fmt.Errorf("cannot register pg_range module")
+			}
+
+			if err := conn.CreateModule("pg_namespace_module", &pgNamespaceModule{}); err != nil {
+				return fmt.Errorf("cannot register pg_namespace module")
+			}
+
+			if err := conn.CreateModule("pg_description_module", &pgDescriptionModule{}); err != nil {
+				return fmt.Errorf("cannot register pg_description module")
+			}
+
+			if err := conn.CreateModule("pg_class_module", &pgClassModule{}); err != nil {
+				return fmt.Errorf("cannot register pg_class module")
+			}
+
 			return nil
 		},
 	})
