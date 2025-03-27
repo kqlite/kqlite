@@ -124,7 +124,7 @@ func (conn *ClientConn) handleQuery(ctx context.Context, msg *pgproto3.Query) er
 	} else {
 		rows, err := conn.db.QueryContext(context.TODO(), query)
 		if err != nil {
-			log.Printf("execute query, err: %s\n", err.Error())
+			log.Printf("execute query: %s, err: %s\n", query, err.Error())
 			return writeMessages(conn,
 				&pgproto3.ErrorResponse{Message: err.Error()},
 				&pgproto3.ReadyForQuery{TxStatus: 'I'})
