@@ -274,7 +274,7 @@ func (server *DBServer) handleStartupMessage(ctx context.Context, conn *ClientCo
 	}
 
 	// Initialize postgres catalog virtual tables.
-	if err = initCatatog(conn.db); err != nil {
+	if err = initCatatog(ctx, conn.db); err != nil {
 		return err
 	}
 
