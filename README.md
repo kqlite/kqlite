@@ -44,23 +44,31 @@ Development
   test-package     Run unit tests for specific package.
   test-coverage    Display test coverage as html output in the browser.
 ```
+running `make` without any arguments will trigger build and the resulting binary will endup in the project's bin/ folder.
 
 ### Running `kqlite`
 
-After running `make` without any arguments, you can run `bin/kqlite --help` to list available options.<br>
-Usally `bin/kqlite -data-dir <dir>` is the common way for executing.
+After building the binary, you can execute `bin/kqlite --help` to list available options.<br>
+Usally `bin/kqlite -data-dir <dir>` is the common way to run it.
 
 ## What Works So Far?
 
 This is still a work in progress and is not yet at full feature database engine. Bugs may exist. Please check this list carefully before logging a new issue or assuming an intentional change.
 
 Status overview:
-
- * Access to a single database from multiple remote connections.
+ * Access to remote SQLite databases over the Postgres wire protocol from multiple remote connections.
  * Remote access via <b>psql</b>, but some basic commands like `\dt` aren't yet supported.
+   ```sh
+   psql --host HOSTNAME -d DBNAME
+   ```
+   `DBNAME must be without the '.db' suffix.`
  * Transaction support in terms of `sqlite`.
- * Currently ***pgx*** through `database/sql` is tested (https://github.com/jackc/pgx/wiki/Getting-started-with-pgx-through-database-sql).
+ * Currently ***pgx*** through `database/sql` is tested and proven to work (https://github.com/jackc/pgx/wiki/Getting-started-with-pgx-through-database-sql).
  * A lightweight storage backend for K8s (https://docs.k3s.io/datastore) is proven to work.<br>
+   Installing and using k3s with postgresql/kqlite
+   ```sh
+   curl -sfL https://get.k3s.io | sh -s - server --token=SECRET --datastore-endpoint="postgres://127.0.0.1:5432/kine?sslmode=disable"
+   ```
   > [!NOTE]
   > Encryption is not available yet,<br>
   > add `sslmode=disable` in the endpoint address ex. `postgres://127.0.0.1:5432/kine?sslmode=disable`.
