@@ -51,7 +51,7 @@ running `make` without any arguments will trigger build and the resulting binary
 After building the binary, you can execute `bin/kqlite --help` to list available options.<br>
 Usally `bin/kqlite -data-dir <dir>` is the common way to run it.
 
-## What Works So Far?
+### What Works So Far?
 
 This is still a work in progress and is not yet at full feature database engine. Bugs may exist. Please check this list carefully before logging a new issue or assuming an intentional change.
 
