@@ -122,7 +122,7 @@ func (conn *ClientConn) handleQuery(ctx context.Context, msg *pgproto3.Query) er
 			})
 		}
 	} else {
-		rows, err := conn.db.QueryContext(context.TODO(), query)
+		rows, err := conn.db.QueryContext(ctx, query)
 		if err != nil {
 			log.Printf("execute query: %s, err: %s\n", query, err.Error())
 			return writeMessages(conn,
@@ -434,9 +434,9 @@ func (conn *ClientConn) handleParse(ctx context.Context, msg *pgproto3.Parse) er
 
 	// The query string contained in a Parse message cannot include more than one SQL statement;
 	// else a syntax error is reported.
-	if len(parserResult) > 1 {
+	if len(parserResult) != 1 {
 		return writeMessages(conn,
-			&pgproto3.ErrorResponse{Message: "Wrong number of prepared statements",
+			&pgproto3.ErrorResponse{Message: "Wrong number of prepared statements or invalid statement",
 				Code: pgerrcode.InvalidPreparedStatementDefinition})
 	}
 
