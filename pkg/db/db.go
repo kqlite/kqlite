@@ -13,7 +13,6 @@ import (
 	"github.com/kqlite/kqlite/pkg/util/pgerror"
 
 	"github.com/jackc/pgerrcode"
-
 	"github.com/mattn/go-sqlite3"
 )
 
@@ -55,6 +54,23 @@ const (
 	CMD_COMMIT   SqlCmdType = "COMMIT"
 	CMD_ROLLBACK SqlCmdType = "ROLLBACK"
 	CMD_UNKNOWN  SqlCmdType = "UNKNOWN"
+)
+
+// CheckpointMode is the mode in which a checkpoint runs.
+type CheckpointMode int
+
+const (
+	// CheckpointRestart instructs the checkpoint to run in restart mode.
+	CheckpointRestart CheckpointMode = iota
+	// CheckpointTruncate instructs the checkpoint to run in truncate mode.
+	CheckpointTruncate
+)
+
+var (
+	checkpointPRAGMAs = map[CheckpointMode]string{
+		CheckpointRestart:  "PRAGMA wal_checkpoint(RESTART)",
+		CheckpointTruncate: "PRAGMA wal_checkpoint(TRUNCATE)",
+	}
 )
 
 // Represents a single SQL statement.
@@ -131,6 +147,11 @@ func openSQLiteDB(dbPath string, readOnly, fkEnabled, wal bool) (*sql.DB, error)
 		return nil, err
 	}
 
+	// Make sure kqlite has full control over the checkpointing process.
+	if _, err := rwdb.Exec("PRAGMA wal_autocheckpoint=0"); err != nil {
+		return nil, fmt.Errorf("disable autocheckpointing: %s", err.Error())
+	}
+
 	if err := rwdb.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping on-disk database: %s", err.Error())
 	}
@@ -149,7 +170,7 @@ func openSQLiteDB(dbPath string, readOnly, fkEnabled, wal bool) (*sql.DB, error)
 
 	// Set connection pool behaviour.
 	rwdb.SetConnMaxLifetime(0)
-	//rwdb.SetMaxOpenConns(1)
+	rwdb.SetMaxOpenConns(1)
 
 	return rwdb, nil
 }
@@ -168,13 +189,88 @@ func makeDSN(path string, readOnly, fkEnabled, walEnabled bool) string {
 		opts.Add("mode", "ro")
 	}
 
-	opts.Add("_sync", "1")
-
+	opts.Add("_sync", "0")
 	opts.Add("cache", "shared")
-
 	opts.Add("_busy_timeout", "3000")
 
 	return fmt.Sprintf("file:%s?%s", path, opts.Encode())
+}
+
+// SetBusyTimeout sets the busy timeout for the database. If a timeout is
+// is less than zero it is not set.
+func (db *DB) SetBusyTimeout(rwMs, roMs int) (err error) {
+	if rwMs >= 0 {
+		_, err := db.rwdb.Exec(fmt.Sprintf("PRAGMA busy_timeout=%d", rwMs))
+		if err != nil {
+			return err
+		}
+	}
+	if roMs >= 0 {
+		_, err = db.rodb.Exec(fmt.Sprintf("PRAGMA busy_timeout=%d", roMs))
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// BusyTimeout returns the current busy timeout value.
+func (db *DB) BusyTimeout() (rwMs, roMs int, err error) {
+	err = db.rwdb.QueryRow("PRAGMA busy_timeout").Scan(&rwMs)
+	if err != nil {
+		return 0, 0, err
+	}
+	err = db.rodb.QueryRow("PRAGMA busy_timeout").Scan(&roMs)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return rwMs, roMs, nil
+}
+
+// Checkpoint checkpoints the WAL file. If the WAL file is not enabled, this
+// function is a no-op.
+func (db *DB) Checkpoint(mode CheckpointMode) error {
+	return db.CheckpointWithTimeout(mode, 0)
+}
+
+// CheckpointWithTimeout performs a WAL checkpoint. If the checkpoint does not
+// run to completion within the given duration, an error is returned. If the
+// duration is 0, the busy timeout is not modified before executing the
+// checkpoint.
+func (db *DB) CheckpointWithTimeout(mode CheckpointMode, dur time.Duration) (err error) {
+	if dur > 0 {
+		rwBt, _, err := db.BusyTimeout()
+		if err != nil {
+			return fmt.Errorf("failed to get busy_timeout on checkpointing connection: %s", err.Error())
+		}
+		if err := db.SetBusyTimeout(int(dur.Milliseconds()), -1); err != nil {
+			return fmt.Errorf("failed to set busy_timeout on checkpointing connection: %s", err.Error())
+		}
+		defer func() {
+			// Reset back to default
+			if err := db.SetBusyTimeout(rwBt, -1); err != nil {
+				// TODO Fix logging.
+				// db.logger.Printf("failed to reset busy_timeout on checkpointing connection: %s", err.Error())
+			}
+		}()
+	}
+
+	ok, nPages, nMoved, err := checkpointDB(db.rwdb, mode)
+	if err != nil {
+		return fmt.Errorf("error checkpointing WAL: %s", err.Error())
+	}
+	if ok != 0 {
+		return fmt.Errorf("failed to completely checkpoint WAL (%d ok, %d pages, %d moved)", ok, nPages, nMoved)
+	}
+
+	return nil
+}
+
+func checkpointDB(rwdb *sql.DB, mode CheckpointMode) (ok, pages, moved int, err error) {
+	err = rwdb.QueryRow(checkpointPRAGMAs[mode]).Scan(&ok, &pages, &moved)
+	return
 }
 
 // Vacuum runs a VACUUM on the database.
