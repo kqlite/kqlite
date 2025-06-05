@@ -94,6 +94,16 @@ func (conn *ClientConn) handleQuery(ctx context.Context, msg *pgproto3.Query) er
 		return err
 	}
 
+	log.Printf("query :%s", msg.String)
+	// COPY FROM command received,
+	// The CopyFrom statement is special.
+	// We need to detect it so we can hand control of the connection to a special handler.
+	// It will block this network routine until control is passed back.
+	if parser.IsCopyCommand(msg.String) {
+		log.Printf("Is copy :%s", msg.String)
+		return conn.handleCopy(ctx, msg)
+	}
+
 	// Rewrite system-information queries so they're tolerable by SQLite.
 	query := parser.RewriteQuery(msg.String)
 	if msg.String != query {
@@ -447,7 +457,8 @@ func (conn *ClientConn) handleParse(ctx context.Context, msg *pgproto3.Parse) er
 		ReturnsRows: parserResult[0].ReturnsRows,
 	}
 
-	// Check if Parse message contains any paremter type hints.
+	// Check if Parse message contains any parameter type hints.
+	// The client may provide type information for (some of) the placeholders.
 	var paramTypes []uint32
 	if len(msg.ParameterOIDs) == 0 {
 		var err error
@@ -460,6 +471,7 @@ func (conn *ClientConn) handleParse(ctx context.Context, msg *pgproto3.Parse) er
 		paramTypes = msg.ParameterOIDs
 	}
 
+	// TODO Debug
 	// fmt.Printf("paramTypes %v\n", paramTypes)
 
 	// Create prepare statement and add it to cache.
