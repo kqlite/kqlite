@@ -10,13 +10,13 @@ import (
 
 	"github.com/kqlite/kqlite/pkg/db"
 	"github.com/kqlite/kqlite/pkg/parser"
+	"github.com/kqlite/kqlite/pkg/store"
+	"github.com/kqlite/kqlite/pkg/util/command"
 	"github.com/kqlite/kqlite/pkg/util/pgerror"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
-
-	pg_query "github.com/pganalyze/pg_query_go/v6"
 )
 
 // Represents a database client session.
@@ -24,7 +24,7 @@ type ClientConn struct {
 	net.Conn
 	backend *pgproto3.Backend
 	db      *db.DB
-	exeqc   *db.ExecuteQueryContext
+	exectx  store.ExecQueryContext
 
 	// Value types encoding and decoding.
 	typeMap *pgtype.Map
@@ -122,16 +122,17 @@ func (conn *ClientConn) handleQuery(ctx context.Context, msg *pgproto3.Query) er
 	}
 
 	// Convert parser result to database statements.
-	var statements []db.Statement
+	var statements []store.Statement
 	if len(parserResult) != 0 {
 		for _, result := range parserResult {
-			statements = append(statements, db.Statement{
+			statements = append(statements, store.Statement{
 				Query:       result.Sql,
-				CmdType:     convertToStmtCmd(result),
+				CmdType:     command.ConvertToStmtCmd(result),
 				ReturnsRows: result.ReturnsRows,
 			})
 		}
 	} else {
+		// A read-only query not unknow to parser.
 		rows, err := conn.db.QueryContext(ctx, query)
 		if err != nil {
 			log.Printf("execute query: %s, err: %s\n", query, err.Error())
@@ -157,7 +158,7 @@ func (conn *ClientConn) handleQuery(ctx context.Context, msg *pgproto3.Query) er
 	}
 
 	// Execute all statements part of the SQL query.
-	response, err := conn.exeqc.Request(statements)
+	response, err := conn.exectx.Request(statements)
 	if err != nil {
 		log.Printf("execute query, err: %s\n", err.Error())
 		return writeMessages(conn,
@@ -241,10 +242,10 @@ func (conn *ClientConn) handleExecute(ctx context.Context, msg *pgproto3.Execute
 
 	stmt := *portal.Prepared.Stmt
 	stmt.Parameters = portal.Qargs
-	statements := []db.Statement{stmt}
+	statements := []store.Statement{stmt}
 
 	// Execute SQL statement.
-	response, err := conn.exeqc.Request(statements)
+	response, err := conn.exectx.Request(statements)
 	if err != nil {
 		log.Printf("Error from query %s\n", err.Error())
 		return writeMessages(conn,
@@ -451,9 +452,9 @@ func (conn *ClientConn) handleParse(ctx context.Context, msg *pgproto3.Parse) er
 	}
 
 	// Convert parser result to database statement.
-	stmt := &db.Statement{
+	stmt := &store.Statement{
 		Query:       parserResult[0].Sql,
-		CmdType:     convertToStmtCmd(parserResult[0]),
+		CmdType:     command.ConvertToStmtCmd(parserResult[0]),
 		ReturnsRows: parserResult[0].ReturnsRows,
 	}
 
@@ -484,38 +485,4 @@ func (conn *ClientConn) handleParse(ctx context.Context, msg *pgproto3.Parse) er
 
 	// Parsing complete.
 	return writeMessages(conn, &pgproto3.ParseComplete{})
-}
-
-// Will convert parser commands types to database statement commands.
-func convertToStmtCmd(stmtResult parser.ParserStmtResult) db.SqlCmdType {
-	// Transaction commands.
-	if stmtResult.TxCmd != pg_query.TransactionStmtKind_TRANSACTION_STMT_KIND_UNDEFINED {
-		switch stmtResult.TxCmd {
-		case pg_query.TransactionStmtKind_TRANS_STMT_BEGIN:
-			return db.CMD_BEGIN
-
-		case pg_query.TransactionStmtKind_TRANS_STMT_COMMIT:
-			return db.CMD_COMMIT
-
-		case pg_query.TransactionStmtKind_TRANS_STMT_ROLLBACK:
-			return db.CMD_ROLLBACK
-		}
-	}
-	// Common SQL commands.
-	if stmtResult.SqlCmd != pg_query.CmdType_CMD_TYPE_UNDEFINED {
-		switch stmtResult.SqlCmd {
-		case pg_query.CmdType_CMD_SELECT:
-			return db.CMD_SELECT
-
-		case pg_query.CmdType_CMD_INSERT:
-			return db.CMD_INSERT
-
-		case pg_query.CmdType_CMD_DELETE:
-			return db.CMD_DELETE
-
-		case pg_query.CmdType_CMD_UPDATE:
-			return db.CMD_UPDATE
-		}
-	}
-	return ""
 }

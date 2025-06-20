@@ -10,9 +10,6 @@ import (
 	"time"
 
 	"github.com/kqlite/kqlite/pkg/sysdb"
-	"github.com/kqlite/kqlite/pkg/util/pgerror"
-
-	"github.com/jackc/pgerrcode"
 	"github.com/mattn/go-sqlite3"
 )
 
@@ -24,37 +21,6 @@ type DB struct {
 	rwdb      *sql.DB // Database connection for database reads and writes.
 	rodb      *sql.DB // Database connection for database reads only.
 }
-
-type execerQueryer interface {
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-}
-
-// Execute queries in a connection context, holds the current transaction specific to the client connection.
-type ExecuteQueryContext struct {
-	db  *DB
-	tx  *sql.Tx
-	ctx context.Context
-}
-
-type ExecuteQueryResponse struct {
-	Rows       *sql.Rows
-	CommandTag string
-	Error      error
-}
-
-type SqlCmdType string
-
-const (
-	CMD_SELECT   SqlCmdType = "SELECT"
-	CMD_UPDATE   SqlCmdType = "UPDATE"
-	CMD_INSERT   SqlCmdType = "INSERT"
-	CMD_DELETE   SqlCmdType = "DELETE"
-	CMD_BEGIN    SqlCmdType = "BEGIN"
-	CMD_COMMIT   SqlCmdType = "COMMIT"
-	CMD_ROLLBACK SqlCmdType = "ROLLBACK"
-	CMD_UNKNOWN  SqlCmdType = "UNKNOWN"
-)
 
 // CheckpointMode is the mode in which a checkpoint runs.
 type CheckpointMode int
@@ -72,21 +38,6 @@ var (
 		CheckpointTruncate: "PRAGMA wal_checkpoint(TRUNCATE)",
 	}
 )
-
-// Represents a single SQL statement.
-type Statement struct {
-	// SQL Query text
-	Query string
-
-	// SQL Command type (ex. SELECT, INSERT, UPDATE ...)
-	CmdType SqlCmdType
-
-	// Statement parameter values if any.
-	Parameters []any
-
-	// Indicates whether statement returns rows even in case of INSERT, UPDATE or others ..
-	ReturnsRows bool
-}
 
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
@@ -290,7 +241,7 @@ func (db *DB) Close() error {
 	return db.rodb.Close()
 }
 
-// A tiny wrapper around DB.Exec.
+// A tiny wrapper around sql.Exec.
 // Executes a query without returning any rows. The args are for any placeholder parameters in the query.
 func (db *DB) Exec(query string, args ...any) (sql.Result, error) {
 	if query != "" {
@@ -299,7 +250,7 @@ func (db *DB) Exec(query string, args ...any) (sql.Result, error) {
 	return nil, nil
 }
 
-// A tiny wrapper around DB.ExecContext.
+// A tiny wrapper around sql.ExecContext.
 // Executes a query without returning any rows. The args are for any placeholder parameters in the query.
 func (db *DB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	if query != "" {
@@ -308,7 +259,7 @@ func (db *DB) ExecContext(ctx context.Context, query string, args ...any) (sql.R
 	return nil, nil
 }
 
-// A tiny wrapper around DB.Query.
+// A tiny wrapper around sql.Query.
 // Executes a query that returns rows, typically a SELECT. The args are for any placeholder parameters in the query.
 func (db *DB) Query(query string, args ...any) (*sql.Rows, error) {
 	if query != "" {
@@ -322,7 +273,7 @@ func (db *DB) Query(query string, args ...any) (*sql.Rows, error) {
 	return nil, nil
 }
 
-// A tiny wrapper around DB.QueryContext.
+// A tiny wrapper around sql.QueryContext.
 // Executes a query that returns rows, typically a SELECT. The args are for any placeholder parameters in the query.
 func (db *DB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	if query != "" {
@@ -372,142 +323,7 @@ func (db *DB) StmtReadOnlyWithConn(sql string, conn *sql.Conn) (bool, error) {
 	return readOnly, nil
 }
 
-// Checks if statemt must return rows.
-func (db *DB) StmtReturnsRows(stmt Statement) bool {
-	if stmt.ReturnsRows || stmt.CmdType == CMD_SELECT {
-		return true
-	}
-
-	return false
-}
-
-// Handle transaction commands separately from the other common SQL commands.
-func (qcontext *ExecuteQueryContext) handleTransaction(stmt Statement) (bool, error) {
-	var err error
-	var handled bool
-
-	switch stmt.CmdType {
-	case CMD_BEGIN: // Check for transaction start
-		handled = true
-		if qcontext.tx != nil {
-			return handled, fmt.Errorf("Syntax error, an active transaction is already present")
-		}
-		if qcontext.tx, err = qcontext.db.rwdb.BeginTx(qcontext.ctx, nil); err != nil {
-			return handled, err
-		}
-		break
-
-	case CMD_COMMIT: // Check for transaction end
-		handled = true
-		if qcontext.tx == nil {
-			return handled, fmt.Errorf("No active transaction to COMMIT")
-		}
-
-		if err := qcontext.tx.Commit(); err != nil {
-			return handled, err
-		}
-		qcontext.tx = nil
-		break
-
-	case CMD_ROLLBACK: // Check for transaction abort/rollback
-		handled = true
-		if qcontext.tx == nil {
-			return handled, fmt.Errorf("No active transaction to ROLLBACK")
-		}
-		if err := qcontext.tx.Rollback(); err != nil {
-			return handled, err
-		}
-		qcontext.tx = nil
-		break
-	}
-
-	return handled, err
-}
-
-// Get a ExecuteQueryContext for this database.
-func (db *DB) CreateContext(ctx context.Context) *ExecuteQueryContext {
-	return &ExecuteQueryContext{
-		db:  db,
-		ctx: ctx,
-		tx:  nil,
-	}
-}
-
-// Request execution of on or more SQL statements that can contain both executes(transactions) and queries returning rows.
-func (qcontext *ExecuteQueryContext) Request(statements []Statement) ([]ExecuteQueryResponse, error) {
-	var err error
-	var response []ExecuteQueryResponse
-
-	// abortOnError indicates whether the caller should continue
-	// processing or break.
-	abortOnError := func(err error) bool {
-		if err != nil && qcontext.tx != nil {
-			qcontext.tx.Rollback()
-			qcontext.tx = nil
-			return true
-		}
-		return false
-	}
-
-	// point executor to default DB connection
-	eq := execerQueryer(qcontext.db)
-
-	if qcontext.tx != nil {
-		eq = qcontext.tx
-	}
-
-	for _, stmt := range statements {
-		if handled, err := qcontext.handleTransaction(stmt); handled || err != nil {
-			response = append(response, ExecuteQueryResponse{
-				Error:      err,
-				CommandTag: fmt.Sprintf("%s", string(stmt.CmdType)),
-			})
-			return response, err
-		}
-
-		// Check if statement must return rows
-		returnsRows := qcontext.db.StmtReturnsRows(stmt)
-
-		if returnsRows {
-			rows, err := eq.QueryContext(qcontext.ctx, stmt.Query, stmt.Parameters...)
-			if err != nil {
-				fmt.Printf("Error from query %s", err.Error())
-			}
-
-			response = append(response, ExecuteQueryResponse{
-				Error:      err,
-				Rows:       rows,
-				CommandTag: fmt.Sprintf("%s 1", stmt.Query),
-			})
-
-			if abortOnError(err) {
-				break
-			}
-		} else {
-			result, err := eq.ExecContext(qcontext.ctx, stmt.Query, stmt.Parameters...)
-
-			if err != nil {
-				fmt.Printf("Error from query %s", err.Error())
-				// TODO SQLITE_CONSTRAINT_UNIQUE
-				if stmt.CmdType == CMD_INSERT {
-					err = pgerror.New(pgerrcode.UniqueViolation, err.Error())
-				}
-			}
-
-			var rowsAffected int64
-			if result != nil {
-				rowsAffected, _ = result.RowsAffected()
-			}
-
-			response = append(response, ExecuteQueryResponse{
-				Error:      err,
-				CommandTag: fmt.Sprintf("%s, %d", string(stmt.CmdType), rowsAffected),
-			})
-
-			if abortOnError(err) {
-				break
-			}
-		}
-	}
-	return response, err
+// // A tiny wrapper around sql.BeginTx.
+func (db *DB) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
+	return db.rwdb.BeginTx(ctx, opts)
 }

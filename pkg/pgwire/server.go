@@ -11,10 +11,11 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/kqlite/kqlite/pkg/db"
+	"github.com/kqlite/kqlite/pkg/store"
+
 	"github.com/jackc/pgx/v5/pgproto3"
 	"golang.org/x/sync/errgroup"
-
-	"github.com/kqlite/kqlite/pkg/db"
 )
 
 // Postgres settings.
@@ -163,7 +164,7 @@ func (server *DBServer) serveConn(ctx context.Context, conn *ClientConn) error {
 	}
 
 	// Create a query execution context for this DB connection.
-	conn.exeqc = conn.db.CreateContext(ctx)
+	conn.exectx = store.CreateDBContext(ctx, conn.db)
 
 	for {
 		msg, err := conn.backend.Receive()
