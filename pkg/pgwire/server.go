@@ -36,7 +36,7 @@ type DBServer struct {
 	group errgroup.Group
 
 	// System database, storing system related data.
-	systemdb *db.DB
+	systemdb *db.Database
 
 	// Global server context
 	ctx    context.Context
@@ -48,6 +48,7 @@ type DBServer struct {
 	// Directory that holds SQLite databases.
 	DataDir string
 
+	// Connection stats.
 	connCounter int32
 }
 
@@ -137,8 +138,8 @@ func (server *DBServer) serve() error {
 
 		server.group.Go(func() error {
 			defer func() {
-				if conn.db != nil {
-					conn.db.Close()
+				if conn.st != nil {
+					conn.st.Close()
 				}
 				conn.Close()
 				server.connections.Delete(conn)
@@ -162,9 +163,6 @@ func (server *DBServer) serveConn(ctx context.Context, conn *ClientConn) error {
 	if err := server.handleConnStartup(ctx, conn); err != nil {
 		return fmt.Errorf("startup: %w", err)
 	}
-
-	// Create a query execution context for this DB connection.
-	conn.exectx = store.CreateDBContext(ctx, conn.db)
 
 	for {
 		msg, err := conn.backend.Receive()
@@ -266,16 +264,23 @@ func (server *DBServer) handleStartupMessage(ctx context.Context, conn *ClientCo
 
 	// TODO implement authentication.
 
+	// Open connection to SQL database.
 	walEnabled := true
 	fkEnabled := false
-	// Open connection to SQL database.
 	dbfilename := name + ".db"
-	if conn.db, err = db.Open(filepath.Join(server.DataDir, dbfilename), fkEnabled, walEnabled); err != nil {
+
+	dbconf := store.DBConfig{
+		OnDiskPath:    filepath.Join(server.DataDir, dbfilename),
+		FKConstraints: fkEnabled,
+		WalEnabled:    walEnabled,
+	}
+
+	if conn.st, err = store.Open(dbconf); err != nil {
 		return err
 	}
 
 	// Initialize postgres catalog virtual tables.
-	if err = initCatatog(ctx, conn.db); err != nil {
+	if err = initCatatog(ctx, conn.st.GetDatabase()); err != nil {
 		return err
 	}
 

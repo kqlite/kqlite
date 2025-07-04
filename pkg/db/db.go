@@ -14,7 +14,7 @@ import (
 )
 
 // DB is the SQL database backend.
-type DB struct {
+type Database struct {
 	path      string  // Path to database file.
 	fkEnabled bool    // Foreign key constraints enabled.
 	wal       bool    // WAL enabled.
@@ -45,7 +45,7 @@ func fileExists(path string) bool {
 }
 
 // Open opens a file-based database using the default driver.
-func Open(dbPath string, fkEnabled, wal bool) (*DB, error) {
+func Open(dbPath string, fkEnabled, wal bool) (*Database, error) {
 	rwdb, err := openDBforWrite(dbPath, fkEnabled, wal)
 	if err != nil {
 		return nil, err
@@ -57,7 +57,7 @@ func Open(dbPath string, fkEnabled, wal bool) (*DB, error) {
 		return nil, err
 	}
 
-	return &DB{
+	return &Database{
 		path:      dbPath,
 		fkEnabled: fkEnabled,
 		wal:       wal,
@@ -149,15 +149,15 @@ func makeDSN(path string, readOnly, fkEnabled, walEnabled bool) string {
 
 // SetBusyTimeout sets the busy timeout for the database. If a timeout is
 // is less than zero it is not set.
-func (db *DB) SetBusyTimeout(rwMs, roMs int) (err error) {
+func (dbase *Database) SetBusyTimeout(rwMs, roMs int) (err error) {
 	if rwMs >= 0 {
-		_, err := db.rwdb.Exec(fmt.Sprintf("PRAGMA busy_timeout=%d", rwMs))
+		_, err := dbase.rwdb.Exec(fmt.Sprintf("PRAGMA busy_timeout=%d", rwMs))
 		if err != nil {
 			return err
 		}
 	}
 	if roMs >= 0 {
-		_, err = db.rodb.Exec(fmt.Sprintf("PRAGMA busy_timeout=%d", roMs))
+		_, err = dbase.rodb.Exec(fmt.Sprintf("PRAGMA busy_timeout=%d", roMs))
 		if err != nil {
 			return err
 		}
@@ -167,12 +167,12 @@ func (db *DB) SetBusyTimeout(rwMs, roMs int) (err error) {
 }
 
 // BusyTimeout returns the current busy timeout value.
-func (db *DB) BusyTimeout() (rwMs, roMs int, err error) {
-	err = db.rwdb.QueryRow("PRAGMA busy_timeout").Scan(&rwMs)
+func (dbase *Database) BusyTimeout() (rwMs, roMs int, err error) {
+	err = dbase.rwdb.QueryRow("PRAGMA busy_timeout").Scan(&rwMs)
 	if err != nil {
 		return 0, 0, err
 	}
-	err = db.rodb.QueryRow("PRAGMA busy_timeout").Scan(&roMs)
+	err = dbase.rodb.QueryRow("PRAGMA busy_timeout").Scan(&roMs)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -182,33 +182,33 @@ func (db *DB) BusyTimeout() (rwMs, roMs int, err error) {
 
 // Checkpoint checkpoints the WAL file. If the WAL file is not enabled, this
 // function is a no-op.
-func (db *DB) Checkpoint(mode CheckpointMode) error {
-	return db.CheckpointWithTimeout(mode, 0)
+func (dbase *Database) Checkpoint(mode CheckpointMode) error {
+	return dbase.CheckpointWithTimeout(mode, 0)
 }
 
 // CheckpointWithTimeout performs a WAL checkpoint. If the checkpoint does not
 // run to completion within the given duration, an error is returned. If the
 // duration is 0, the busy timeout is not modified before executing the
 // checkpoint.
-func (db *DB) CheckpointWithTimeout(mode CheckpointMode, dur time.Duration) (err error) {
+func (dbase *Database) CheckpointWithTimeout(mode CheckpointMode, dur time.Duration) (err error) {
 	if dur > 0 {
-		rwBt, _, err := db.BusyTimeout()
+		rwBt, _, err := dbase.BusyTimeout()
 		if err != nil {
 			return fmt.Errorf("failed to get busy_timeout on checkpointing connection: %s", err.Error())
 		}
-		if err := db.SetBusyTimeout(int(dur.Milliseconds()), -1); err != nil {
+		if err := dbase.SetBusyTimeout(int(dur.Milliseconds()), -1); err != nil {
 			return fmt.Errorf("failed to set busy_timeout on checkpointing connection: %s", err.Error())
 		}
 		defer func() {
 			// Reset back to default
-			if err := db.SetBusyTimeout(rwBt, -1); err != nil {
+			if err := dbase.SetBusyTimeout(rwBt, -1); err != nil {
 				// TODO Fix logging.
 				// db.logger.Printf("failed to reset busy_timeout on checkpointing connection: %s", err.Error())
 			}
 		}()
 	}
 
-	ok, nPages, nMoved, err := checkpointDB(db.rwdb, mode)
+	ok, nPages, nMoved, err := checkpointDB(dbase.rwdb, mode)
 	if err != nil {
 		return fmt.Errorf("error checkpointing WAL: %s", err.Error())
 	}
@@ -225,49 +225,49 @@ func checkpointDB(rwdb *sql.DB, mode CheckpointMode) (ok, pages, moved int, err 
 }
 
 // Vacuum runs a VACUUM on the database.
-func (db *DB) Vacuum() error {
-	_, err := db.rwdb.Exec("VACUUM")
+func (dbase *Database) Vacuum() error {
+	_, err := dbase.rwdb.Exec("VACUUM")
 	return err
 }
 
 // VacuumInto VACUUMs the database into the file at path
-func (db *DB) VacuumInto(path string) error {
-	_, err := db.rwdb.Exec(fmt.Sprintf("VACUUM INTO '%s'", path))
+func (dbase *Database) VacuumInto(path string) error {
+	_, err := dbase.rwdb.Exec(fmt.Sprintf("VACUUM INTO '%s'", path))
 	return err
 }
 
 // Closes the underlying database connection.
-func (db *DB) Close() error {
-	return db.rodb.Close()
+func (dbase *Database) Close() error {
+	return dbase.rodb.Close()
 }
 
 // A tiny wrapper around sql.Exec.
 // Executes a query without returning any rows. The args are for any placeholder parameters in the query.
-func (db *DB) Exec(query string, args ...any) (sql.Result, error) {
+func (dbase *Database) Exec(query string, args ...any) (sql.Result, error) {
 	if query != "" {
-		return db.rwdb.Exec(query, args...)
+		return dbase.rwdb.Exec(query, args...)
 	}
 	return nil, nil
 }
 
 // A tiny wrapper around sql.ExecContext.
 // Executes a query without returning any rows. The args are for any placeholder parameters in the query.
-func (db *DB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+func (dbase *Database) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	if query != "" {
-		return db.rwdb.ExecContext(ctx, query, args...)
+		return dbase.rwdb.ExecContext(ctx, query, args...)
 	}
 	return nil, nil
 }
 
 // A tiny wrapper around sql.Query.
 // Executes a query that returns rows, typically a SELECT. The args are for any placeholder parameters in the query.
-func (db *DB) Query(query string, args ...any) (*sql.Rows, error) {
+func (dbase *Database) Query(query string, args ...any) (*sql.Rows, error) {
 	if query != "" {
-		ro, _ := db.StmtReadOnly(query)
+		ro, _ := dbase.StmtReadOnly(query)
 		if ro {
-			return db.rodb.Query(query, args...)
+			return dbase.rodb.Query(query, args...)
 		} else {
-			return db.rwdb.Query(query, args...)
+			return dbase.rwdb.Query(query, args...)
 		}
 	}
 	return nil, nil
@@ -275,13 +275,13 @@ func (db *DB) Query(query string, args ...any) (*sql.Rows, error) {
 
 // A tiny wrapper around sql.QueryContext.
 // Executes a query that returns rows, typically a SELECT. The args are for any placeholder parameters in the query.
-func (db *DB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+func (dbase *Database) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	if query != "" {
-		ro, _ := db.StmtReadOnly(query)
+		ro, _ := dbase.StmtReadOnly(query)
 		if ro {
-			return db.rodb.QueryContext(ctx, query, args...)
+			return dbase.rodb.QueryContext(ctx, query, args...)
 		} else {
-			return db.rwdb.QueryContext(ctx, query, args...)
+			return dbase.rwdb.QueryContext(ctx, query, args...)
 		}
 	}
 	return nil, nil
@@ -290,19 +290,19 @@ func (db *DB) QueryContext(ctx context.Context, query string, args ...any) (*sql
 // StmtReadOnly returns whether the given SQL statement is read-only.
 // As per https://www.sqlite.org/c3ref/stmt_readonly.html, this function
 // may not return 100% correct results, but should cover most scenarios.
-func (db *DB) StmtReadOnly(sql string) (bool, error) {
-	conn, err := db.rodb.Conn(context.Background())
+func (dbase *Database) StmtReadOnly(sql string) (bool, error) {
+	conn, err := dbase.rodb.Conn(context.Background())
 	if err != nil {
 		return false, err
 	}
 	defer conn.Close()
 
-	return db.StmtReadOnlyWithConn(sql, conn)
+	return dbase.StmtReadOnlyWithConn(sql, conn)
 }
 
 // StmtReadOnlyWithConn returns whether the given SQL statement is read-only, using
 // the given connection.
-func (db *DB) StmtReadOnlyWithConn(sql string, conn *sql.Conn) (bool, error) {
+func (dbase *Database) StmtReadOnlyWithConn(sql string, conn *sql.Conn) (bool, error) {
 	var readOnly bool
 	f := func(driverConn interface{}) error {
 		c := driverConn.(*sqlite3.SQLiteConn)
@@ -323,7 +323,7 @@ func (db *DB) StmtReadOnlyWithConn(sql string, conn *sql.Conn) (bool, error) {
 	return readOnly, nil
 }
 
-// // A tiny wrapper around sql.BeginTx.
-func (db *DB) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
-	return db.rwdb.BeginTx(ctx, opts)
+// A tiny wrapper around sql.BeginTx.
+func (dbase *Database) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
+	return dbase.rwdb.BeginTx(ctx, opts)
 }

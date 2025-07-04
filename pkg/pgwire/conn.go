@@ -22,9 +22,12 @@ import (
 // Represents a database client session.
 type ClientConn struct {
 	net.Conn
+
+	// PostgreSQL backend wire protocol
 	backend *pgproto3.Backend
-	db      *db.DB
-	exectx  store.ExecQueryContext
+
+	// SQLite replicated database store.
+	st *store.Store
 
 	// Value types encoding and decoding.
 	typeMap *pgtype.Map
@@ -133,7 +136,7 @@ func (conn *ClientConn) handleQuery(ctx context.Context, msg *pgproto3.Query) er
 		}
 	} else {
 		// A read-only query not unknow to parser.
-		rows, err := conn.db.QueryContext(ctx, query)
+		rows, err := conn.st.GetDatabase().QueryContext(ctx, query)
 		if err != nil {
 			log.Printf("execute query: %s, err: %s\n", query, err.Error())
 			return writeMessages(conn,
@@ -158,7 +161,7 @@ func (conn *ClientConn) handleQuery(ctx context.Context, msg *pgproto3.Query) er
 	}
 
 	// Execute all statements part of the SQL query.
-	response, err := conn.exectx.Request(statements)
+	response, err := conn.st.Request(ctx, statements)
 	if err != nil {
 		log.Printf("execute query, err: %s\n", err.Error())
 		return writeMessages(conn,
@@ -245,7 +248,7 @@ func (conn *ClientConn) handleExecute(ctx context.Context, msg *pgproto3.Execute
 	statements := []store.Statement{stmt}
 
 	// Execute SQL statement.
-	response, err := conn.exectx.Request(statements)
+	response, err := conn.st.Request(ctx, statements)
 	if err != nil {
 		log.Printf("Error from query %s\n", err.Error())
 		return writeMessages(conn,
@@ -464,7 +467,7 @@ func (conn *ClientConn) handleParse(ctx context.Context, msg *pgproto3.Parse) er
 	if len(msg.ParameterOIDs) == 0 {
 		var err error
 		// Extract statement parameters located in the query text.
-		paramTypes, err = db.LookupTypeInfo(ctx, conn.db, parserResult[0].ArgColumns, parserResult[0].Tables)
+		paramTypes, err = db.LookupTypeInfo(ctx, conn.st.GetDatabase(), parserResult[0].ArgColumns, parserResult[0].Tables)
 		if err != nil {
 			return err
 		}

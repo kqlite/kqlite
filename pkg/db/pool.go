@@ -5,16 +5,16 @@ import (
 	"sync"
 )
 
+// Central location to store sqlite databases.
 type Pool struct {
-	// Database storage access.
-	store sync.Map
+	sync.Map
 }
 
 var dbpool Pool
 
 // Open RW connection to database path.
 func openDBforWrite(dbPath string, fkEnabled, wal bool) (*sql.DB, error) {
-	if sqldb, found := dbpool.store.Load(dbPath); found && sqldb != nil {
+	if sqldb, found := dbpool.Load(dbPath); found && sqldb != nil {
 		dbase := sqldb.(*sql.DB)
 		return dbase, nil
 	} else {
@@ -22,7 +22,7 @@ func openDBforWrite(dbPath string, fkEnabled, wal bool) (*sql.DB, error) {
 			return nil, err
 		} else {
 			// Store database connection in cache.
-			dbpool.store.Store(dbPath, sqldb)
+			dbpool.Store(dbPath, sqldb)
 
 			return sqldb, err
 		}
@@ -32,12 +32,11 @@ func openDBforWrite(dbPath string, fkEnabled, wal bool) (*sql.DB, error) {
 // Clear and flush the global DB connection pool
 func ClearPool() {
 	// Close all database connections stored in the pool.
-	dbpool.store.Range(func(key, value any) bool {
+	dbpool.Range(func(key, value any) bool {
 		dbase := value.(*sql.DB)
 		dbase.Close()
 		return true
 	})
-
-	// Clear all connections references.
-	dbpool.store.Clear()
+	// Clear all sqlite database isntances.
+	dbpool.Clear()
 }

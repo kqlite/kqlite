@@ -70,7 +70,7 @@ func joinElemNames(elems []string) string {
 // Lookup columns type from SQLite by checking the provided list of tables if provided,
 // otherwise check all tables.
 // Will return the corresponding PostgreSQL type compatible with the wire protocol.
-func LookupTypeInfo(ctx context.Context, db *DB, columns, tables []string) ([]uint32, error) {
+func LookupTypeInfo(ctx context.Context, db *Database, columns, tables []string) ([]uint32, error) {
 	var columnTypes []uint32
 	if len(columns) == 0 || db == nil {
 		return columnTypes, nil
