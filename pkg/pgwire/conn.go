@@ -27,7 +27,7 @@ type ClientConn struct {
 	backend *pgproto3.Backend
 
 	// SQLite replicated database store.
-	st *store.Store
+	st *store.DataStore
 
 	// Value types encoding and decoding.
 	typeMap *pgtype.Map
@@ -40,6 +40,9 @@ type ClientConn struct {
 
 	// Forcing to send data in Text format is required when this is a connection from psql client.
 	textDataOnly bool
+
+	// Indicates if this is a replication connection initiated from primary server.
+	isReplicationConn bool
 }
 
 func timer(name string) func() {
@@ -97,7 +100,6 @@ func (conn *ClientConn) handleQuery(ctx context.Context, msg *pgproto3.Query) er
 		return err
 	}
 
-	log.Printf("query :%s", msg.String)
 	// COPY FROM command received,
 	// The CopyFrom statement is special.
 	// We need to detect it so we can hand control of the connection to a special handler.
@@ -110,7 +112,7 @@ func (conn *ClientConn) handleQuery(ctx context.Context, msg *pgproto3.Query) er
 	// Rewrite system-information queries so they're tolerable by SQLite.
 	query := parser.RewriteQuery(msg.String)
 	if msg.String != query {
-		// Debug log the rewriten query.
+		// Debug log the rewritten query.
 		// log.Printf("query rewrite: %s", query)
 	}
 
@@ -124,6 +126,8 @@ func (conn *ClientConn) handleQuery(ctx context.Context, msg *pgproto3.Query) er
 		)
 	}
 
+	log.Printf("simple query :%s", query)
+
 	// Convert parser result to database statements.
 	var statements []store.Statement
 	if len(parserResult) != 0 {
@@ -135,7 +139,7 @@ func (conn *ClientConn) handleQuery(ctx context.Context, msg *pgproto3.Query) er
 			})
 		}
 	} else {
-		// A read-only query not unknow to parser.
+		// A read-only query not recognised from parser.
 		rows, err := conn.st.GetDatabase().QueryContext(ctx, query)
 		if err != nil {
 			log.Printf("execute query: %s, err: %s\n", query, err.Error())
@@ -255,6 +259,8 @@ func (conn *ClientConn) handleExecute(ctx context.Context, msg *pgproto3.Execute
 			&pgproto3.ErrorResponse{Message: err.Error()},
 			&pgproto3.ReadyForQuery{TxStatus: 'I'})
 	}
+
+	//log.Printf("stmt %s\n", stmt.Query)
 
 	resp := response[0]
 	// Handle error from the statement execution.
