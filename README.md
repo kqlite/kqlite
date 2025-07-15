@@ -1,5 +1,5 @@
 <picture>
- <img alt="rqlite logo" src="kqlite-logo-with-text.png" width='70%'>
+ <img alt="rqlite logo" src="kqlite-logo-with-text.png" width='600px'>
 </picture>
 
 ---
