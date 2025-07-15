@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -103,7 +104,9 @@ func LookupTypeInfo(ctx context.Context, db *Database, columns, tables []string)
 		if err := rows.Scan(&colName, &colType); err != nil {
 			return columnTypes, nil
 		}
-		columnDBInfo[colName] = colType
+		// sqlite type names can be either in lower or upper case.
+		// defaulting to upper case when searching in the Typemap.
+		columnDBInfo[colName] = strings.ToUpper(colType)
 	}
 
 	// match column name and type with provided column arguments.
