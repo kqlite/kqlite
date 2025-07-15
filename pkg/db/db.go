@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kqlite/kqlite/pkg/sysdb"
@@ -44,9 +46,12 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-// Open opens a file-based database using the default driver.
+// Open opens a file-based database using the default driver and the specified options.
 func Open(dbPath string, fkEnabled, wal bool) (*Database, error) {
-	rwdb, err := openDBforWrite(dbPath, fkEnabled, wal)
+	var err error
+	var rwdb *sql.DB
+
+	rwdb, err = openDBforWrite(dbPath, fkEnabled, wal)
 	if err != nil {
 		return nil, err
 	}
@@ -326,4 +331,9 @@ func (dbase *Database) StmtReadOnlyWithConn(sql string, conn *sql.Conn) (bool, e
 // A tiny wrapper around sql.BeginTx.
 func (dbase *Database) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
 	return dbase.rwdb.BeginTx(ctx, opts)
+}
+
+func (dbase *Database) GetName() string {
+	_, file := filepath.Split(dbase.path)
+	return strings.TrimSuffix(file, ".db")
 }
