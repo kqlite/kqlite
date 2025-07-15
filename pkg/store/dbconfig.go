@@ -13,9 +13,6 @@ type DBConfig struct {
 	// Paths of SQLite Extensions to be loaded
 	Extensions []string
 
-	// Open the SQLite datbase in read-only mode.
-	ReadOnly bool
-
 	// Open the SQLite datbase in WAL mode.
 	WalEnabled bool
 }
