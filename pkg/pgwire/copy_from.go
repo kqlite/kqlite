@@ -87,5 +87,5 @@ func (conn *ClientConn) handleCopy(ctx context.Context, msg *pgproto3.Query) err
 		}
 	}
 
-	return nil
+	// return nil
 }
