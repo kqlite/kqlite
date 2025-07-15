@@ -165,6 +165,8 @@ func toRowDescriptionNew(cols []*sql.ColumnType, oids []uint32, textDataOnly boo
 func scanRowNew(rows *sql.Rows, cols []*sql.ColumnType, typeMap *pgtype.Map, oids *[]uint32, textDataOnly bool) (*pgproto3.DataRow, error) {
 	refs := make([]interface{}, len(cols))
 	values := make([]interface{}, len(cols))
+	binFormat := !textDataOnly
+
 	for i := range refs {
 		refs[i] = &values[i]
 	}
@@ -184,7 +186,7 @@ func scanRowNew(rows *sql.Rows, cols []*sql.ColumnType, typeMap *pgtype.Map, oid
 
 		var err error
 		var buf []byte
-		if !textDataOnly {
+		if binFormat {
 			buf, err = typeMap.Encode((*oids)[i], pgtype.BinaryFormatCode, values[i], nil)
 		} else {
 			buf, err = typeMap.Encode((*oids)[i], pgtype.TextFormatCode, values[i], nil)
