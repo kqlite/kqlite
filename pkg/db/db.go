@@ -6,19 +6,17 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kqlite/kqlite/pkg/sysdb"
-	"github.com/kqlite/kqlite/pkg/util/pgerror"
-
-	"github.com/jackc/pgerrcode"
-
 	"github.com/mattn/go-sqlite3"
 )
 
 // DB is the SQL database backend.
-type DB struct {
+type Database struct {
 	path      string  // Path to database file.
 	fkEnabled bool    // Foreign key constraints enabled.
 	wal       bool    // WAL enabled.
@@ -26,60 +24,34 @@ type DB struct {
 	rodb      *sql.DB // Database connection for database reads only.
 }
 
-type execerQueryer interface {
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-}
-
-// Execute queries in a connection context, holds the current transaction specific to the client connection.
-type ExecuteQueryContext struct {
-	db  *DB
-	tx  *sql.Tx
-	ctx context.Context
-}
-
-type ExecuteQueryResponse struct {
-	Rows       *sql.Rows
-	CommandTag string
-	Error      error
-}
-
-type SqlCmdType string
+// CheckpointMode is the mode in which a checkpoint runs.
+type CheckpointMode int
 
 const (
-	CMD_SELECT   SqlCmdType = "SELECT"
-	CMD_UPDATE   SqlCmdType = "UPDATE"
-	CMD_INSERT   SqlCmdType = "INSERT"
-	CMD_DELETE   SqlCmdType = "DELETE"
-	CMD_BEGIN    SqlCmdType = "BEGIN"
-	CMD_COMMIT   SqlCmdType = "COMMIT"
-	CMD_ROLLBACK SqlCmdType = "ROLLBACK"
-	CMD_UNKNOWN  SqlCmdType = "UNKNOWN"
+	// CheckpointRestart instructs the checkpoint to run in restart mode.
+	CheckpointRestart CheckpointMode = iota
+	// CheckpointTruncate instructs the checkpoint to run in truncate mode.
+	CheckpointTruncate
 )
 
-// Represents a single SQL statement.
-type Statement struct {
-	// SQL Query text
-	Query string
-
-	// SQL Command type (ex. SELECT, INSERT, UPDATE ...)
-	CmdType SqlCmdType
-
-	// Statement parameter values if any.
-	Parameters []any
-
-	// Indicates whether statement returns rows even in case of INSERT, UPDATE or others ..
-	ReturnsRows bool
-}
+var (
+	checkpointPRAGMAs = map[CheckpointMode]string{
+		CheckpointRestart:  "PRAGMA wal_checkpoint(RESTART)",
+		CheckpointTruncate: "PRAGMA wal_checkpoint(TRUNCATE)",
+	}
+)
 
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
 
-// Open opens a file-based database using the default driver.
-func Open(dbPath string, fkEnabled, wal bool) (*DB, error) {
-	rwdb, err := openDBforWrite(dbPath, fkEnabled, wal)
+// Open opens a file-based database using the default driver and the specified options.
+func Open(dbPath string, fkEnabled, wal bool) (*Database, error) {
+	var err error
+	var rwdb *sql.DB
+
+	rwdb, err = openDBforWrite(dbPath, fkEnabled, wal)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +62,7 @@ func Open(dbPath string, fkEnabled, wal bool) (*DB, error) {
 		return nil, err
 	}
 
-	return &DB{
+	return &Database{
 		path:      dbPath,
 		fkEnabled: fkEnabled,
 		wal:       wal,
@@ -131,6 +103,11 @@ func openSQLiteDB(dbPath string, readOnly, fkEnabled, wal bool) (*sql.DB, error)
 		return nil, err
 	}
 
+	// Make sure kqlite has full control over the checkpointing process.
+	if _, err := rwdb.Exec("PRAGMA wal_autocheckpoint=0"); err != nil {
+		return nil, fmt.Errorf("disable autocheckpointing: %s", err.Error())
+	}
+
 	if err := rwdb.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping on-disk database: %s", err.Error())
 	}
@@ -149,7 +126,7 @@ func openSQLiteDB(dbPath string, readOnly, fkEnabled, wal bool) (*sql.DB, error)
 
 	// Set connection pool behaviour.
 	rwdb.SetConnMaxLifetime(0)
-	//rwdb.SetMaxOpenConns(1)
+	rwdb.SetMaxOpenConns(1)
 
 	return rwdb, nil
 }
@@ -168,73 +145,148 @@ func makeDSN(path string, readOnly, fkEnabled, walEnabled bool) string {
 		opts.Add("mode", "ro")
 	}
 
-	opts.Add("_sync", "1")
-
+	opts.Add("_sync", "0")
 	opts.Add("cache", "shared")
-
 	opts.Add("_busy_timeout", "3000")
 
 	return fmt.Sprintf("file:%s?%s", path, opts.Encode())
 }
 
+// SetBusyTimeout sets the busy timeout for the database. If a timeout is
+// is less than zero it is not set.
+func (dbase *Database) SetBusyTimeout(rwMs, roMs int) (err error) {
+	if rwMs >= 0 {
+		_, err := dbase.rwdb.Exec(fmt.Sprintf("PRAGMA busy_timeout=%d", rwMs))
+		if err != nil {
+			return err
+		}
+	}
+	if roMs >= 0 {
+		_, err = dbase.rodb.Exec(fmt.Sprintf("PRAGMA busy_timeout=%d", roMs))
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// BusyTimeout returns the current busy timeout value.
+func (dbase *Database) BusyTimeout() (rwMs, roMs int, err error) {
+	err = dbase.rwdb.QueryRow("PRAGMA busy_timeout").Scan(&rwMs)
+	if err != nil {
+		return 0, 0, err
+	}
+	err = dbase.rodb.QueryRow("PRAGMA busy_timeout").Scan(&roMs)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return rwMs, roMs, nil
+}
+
+// Checkpoint checkpoints the WAL file. If the WAL file is not enabled, this
+// function is a no-op.
+func (dbase *Database) Checkpoint(mode CheckpointMode) error {
+	return dbase.CheckpointWithTimeout(mode, 0)
+}
+
+// CheckpointWithTimeout performs a WAL checkpoint. If the checkpoint does not
+// run to completion within the given duration, an error is returned. If the
+// duration is 0, the busy timeout is not modified before executing the
+// checkpoint.
+func (dbase *Database) CheckpointWithTimeout(mode CheckpointMode, dur time.Duration) (err error) {
+	if dur > 0 {
+		rwBt, _, err := dbase.BusyTimeout()
+		if err != nil {
+			return fmt.Errorf("failed to get busy_timeout on checkpointing connection: %s", err.Error())
+		}
+		if err := dbase.SetBusyTimeout(int(dur.Milliseconds()), -1); err != nil {
+			return fmt.Errorf("failed to set busy_timeout on checkpointing connection: %s", err.Error())
+		}
+		defer func() {
+			// Reset back to default
+			if err := dbase.SetBusyTimeout(rwBt, -1); err != nil {
+				// TODO Fix logging.
+				// db.logger.Printf("failed to reset busy_timeout on checkpointing connection: %s", err.Error())
+			}
+		}()
+	}
+
+	ok, nPages, nMoved, err := checkpointDB(dbase.rwdb, mode)
+	if err != nil {
+		return fmt.Errorf("error checkpointing WAL: %s", err.Error())
+	}
+	if ok != 0 {
+		return fmt.Errorf("failed to completely checkpoint WAL (%d ok, %d pages, %d moved)", ok, nPages, nMoved)
+	}
+
+	return nil
+}
+
+func checkpointDB(rwdb *sql.DB, mode CheckpointMode) (ok, pages, moved int, err error) {
+	err = rwdb.QueryRow(checkpointPRAGMAs[mode]).Scan(&ok, &pages, &moved)
+	return
+}
+
 // Vacuum runs a VACUUM on the database.
-func (db *DB) Vacuum() error {
-	_, err := db.rwdb.Exec("VACUUM")
+func (dbase *Database) Vacuum() error {
+	_, err := dbase.rwdb.Exec("VACUUM")
 	return err
 }
 
 // VacuumInto VACUUMs the database into the file at path
-func (db *DB) VacuumInto(path string) error {
-	_, err := db.rwdb.Exec(fmt.Sprintf("VACUUM INTO '%s'", path))
+func (dbase *Database) VacuumInto(path string) error {
+	_, err := dbase.rwdb.Exec(fmt.Sprintf("VACUUM INTO '%s'", path))
 	return err
 }
 
 // Closes the underlying database connection.
-func (db *DB) Close() error {
-	return db.rodb.Close()
+func (dbase *Database) Close() error {
+	return dbase.rodb.Close()
 }
 
-// A tiny wrapper around DB.Exec.
+// A tiny wrapper around sql.Exec.
 // Executes a query without returning any rows. The args are for any placeholder parameters in the query.
-func (db *DB) Exec(query string, args ...any) (sql.Result, error) {
+func (dbase *Database) Exec(query string, args ...any) (sql.Result, error) {
 	if query != "" {
-		return db.rwdb.Exec(query, args...)
+		return dbase.rwdb.Exec(query, args...)
 	}
 	return nil, nil
 }
 
-// A tiny wrapper around DB.ExecContext.
+// A tiny wrapper around sql.ExecContext.
 // Executes a query without returning any rows. The args are for any placeholder parameters in the query.
-func (db *DB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+func (dbase *Database) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	if query != "" {
-		return db.rwdb.ExecContext(ctx, query, args...)
+		return dbase.rwdb.ExecContext(ctx, query, args...)
 	}
 	return nil, nil
 }
 
-// A tiny wrapper around DB.Query.
+// A tiny wrapper around sql.Query.
 // Executes a query that returns rows, typically a SELECT. The args are for any placeholder parameters in the query.
-func (db *DB) Query(query string, args ...any) (*sql.Rows, error) {
+func (dbase *Database) Query(query string, args ...any) (*sql.Rows, error) {
 	if query != "" {
-		ro, _ := db.StmtReadOnly(query)
+		ro, _ := dbase.StmtReadOnly(query)
 		if ro {
-			return db.rodb.Query(query, args...)
+			return dbase.rodb.Query(query, args...)
 		} else {
-			return db.rwdb.Query(query, args...)
+			return dbase.rwdb.Query(query, args...)
 		}
 	}
 	return nil, nil
 }
 
-// A tiny wrapper around DB.QueryContext.
+// A tiny wrapper around sql.QueryContext.
 // Executes a query that returns rows, typically a SELECT. The args are for any placeholder parameters in the query.
-func (db *DB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+func (dbase *Database) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	if query != "" {
-		ro, _ := db.StmtReadOnly(query)
+		ro, _ := dbase.StmtReadOnly(query)
 		if ro {
-			return db.rodb.QueryContext(ctx, query, args...)
+			return dbase.rodb.QueryContext(ctx, query, args...)
 		} else {
-			return db.rwdb.QueryContext(ctx, query, args...)
+			return dbase.rwdb.QueryContext(ctx, query, args...)
 		}
 	}
 	return nil, nil
@@ -243,19 +295,19 @@ func (db *DB) QueryContext(ctx context.Context, query string, args ...any) (*sql
 // StmtReadOnly returns whether the given SQL statement is read-only.
 // As per https://www.sqlite.org/c3ref/stmt_readonly.html, this function
 // may not return 100% correct results, but should cover most scenarios.
-func (db *DB) StmtReadOnly(sql string) (bool, error) {
-	conn, err := db.rodb.Conn(context.Background())
+func (dbase *Database) StmtReadOnly(sql string) (bool, error) {
+	conn, err := dbase.rodb.Conn(context.Background())
 	if err != nil {
 		return false, err
 	}
 	defer conn.Close()
 
-	return db.StmtReadOnlyWithConn(sql, conn)
+	return dbase.StmtReadOnlyWithConn(sql, conn)
 }
 
 // StmtReadOnlyWithConn returns whether the given SQL statement is read-only, using
 // the given connection.
-func (db *DB) StmtReadOnlyWithConn(sql string, conn *sql.Conn) (bool, error) {
+func (dbase *Database) StmtReadOnlyWithConn(sql string, conn *sql.Conn) (bool, error) {
 	var readOnly bool
 	f := func(driverConn interface{}) error {
 		c := driverConn.(*sqlite3.SQLiteConn)
@@ -276,142 +328,12 @@ func (db *DB) StmtReadOnlyWithConn(sql string, conn *sql.Conn) (bool, error) {
 	return readOnly, nil
 }
 
-// Checks if statemt must return rows.
-func (db *DB) StmtReturnsRows(stmt Statement) bool {
-	if stmt.ReturnsRows || stmt.CmdType == CMD_SELECT {
-		return true
-	}
-
-	return false
+// A tiny wrapper around sql.BeginTx.
+func (dbase *Database) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
+	return dbase.rwdb.BeginTx(ctx, opts)
 }
 
-// Handle transaction commands separately from the other common SQL commands.
-func (qcontext *ExecuteQueryContext) handleTransaction(stmt Statement) (bool, error) {
-	var err error
-	var handled bool
-
-	switch stmt.CmdType {
-	case CMD_BEGIN: // Check for transaction start
-		handled = true
-		if qcontext.tx != nil {
-			return handled, fmt.Errorf("Syntax error, an active transaction is already present")
-		}
-		if qcontext.tx, err = qcontext.db.rwdb.BeginTx(qcontext.ctx, nil); err != nil {
-			return handled, err
-		}
-		break
-
-	case CMD_COMMIT: // Check for transaction end
-		handled = true
-		if qcontext.tx == nil {
-			return handled, fmt.Errorf("No active transaction to COMMIT")
-		}
-
-		if err := qcontext.tx.Commit(); err != nil {
-			return handled, err
-		}
-		qcontext.tx = nil
-		break
-
-	case CMD_ROLLBACK: // Check for transaction abort/rollback
-		handled = true
-		if qcontext.tx == nil {
-			return handled, fmt.Errorf("No active transaction to ROLLBACK")
-		}
-		if err := qcontext.tx.Rollback(); err != nil {
-			return handled, err
-		}
-		qcontext.tx = nil
-		break
-	}
-
-	return handled, err
-}
-
-// Get a ExecuteQueryContext for this database.
-func (db *DB) CreateContext(ctx context.Context) *ExecuteQueryContext {
-	return &ExecuteQueryContext{
-		db:  db,
-		ctx: ctx,
-		tx:  nil,
-	}
-}
-
-// Request execution of on or more SQL statements that can contain both executes(transactions) and queries returning rows.
-func (qcontext *ExecuteQueryContext) Request(statements []Statement) ([]ExecuteQueryResponse, error) {
-	var err error
-	var response []ExecuteQueryResponse
-
-	// abortOnError indicates whether the caller should continue
-	// processing or break.
-	abortOnError := func(err error) bool {
-		if err != nil && qcontext.tx != nil {
-			qcontext.tx.Rollback()
-			qcontext.tx = nil
-			return true
-		}
-		return false
-	}
-
-	// point executor to default DB connection
-	eq := execerQueryer(qcontext.db)
-
-	if qcontext.tx != nil {
-		eq = qcontext.tx
-	}
-
-	for _, stmt := range statements {
-		if handled, err := qcontext.handleTransaction(stmt); handled || err != nil {
-			response = append(response, ExecuteQueryResponse{
-				Error:      err,
-				CommandTag: fmt.Sprintf("%s", string(stmt.CmdType)),
-			})
-			return response, err
-		}
-
-		// Check if statement must return rows
-		returnsRows := qcontext.db.StmtReturnsRows(stmt)
-
-		if returnsRows {
-			rows, err := eq.QueryContext(qcontext.ctx, stmt.Query, stmt.Parameters...)
-			if err != nil {
-				fmt.Printf("Error from query %s", err.Error())
-			}
-
-			response = append(response, ExecuteQueryResponse{
-				Error:      err,
-				Rows:       rows,
-				CommandTag: fmt.Sprintf("%s 1", stmt.Query),
-			})
-
-			if abortOnError(err) {
-				break
-			}
-		} else {
-			result, err := eq.ExecContext(qcontext.ctx, stmt.Query, stmt.Parameters...)
-
-			if err != nil {
-				fmt.Printf("Error from query %s", err.Error())
-				// TODO SQLITE_CONSTRAINT_UNIQUE
-				if stmt.CmdType == CMD_INSERT {
-					err = pgerror.New(pgerrcode.UniqueViolation, err.Error())
-				}
-			}
-
-			var rowsAffected int64
-			if result != nil {
-				rowsAffected, _ = result.RowsAffected()
-			}
-
-			response = append(response, ExecuteQueryResponse{
-				Error:      err,
-				CommandTag: fmt.Sprintf("%s, %d", string(stmt.CmdType), rowsAffected),
-			})
-
-			if abortOnError(err) {
-				break
-			}
-		}
-	}
-	return response, err
+func (dbase *Database) GetName() string {
+	_, file := filepath.Split(dbase.path)
+	return strings.TrimSuffix(file, ".db")
 }

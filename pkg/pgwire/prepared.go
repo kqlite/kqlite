@@ -6,7 +6,7 @@ import (
 
 	"github.com/jackc/pgerrcode"
 
-	"github.com/kqlite/kqlite/pkg/db"
+	"github.com/kqlite/kqlite/pkg/store"
 	"github.com/kqlite/kqlite/pkg/util/pgerror"
 )
 
@@ -30,7 +30,7 @@ type PreparedPortal struct {
 // of arguments and results have been determined.
 type PreparedStatement struct {
 	Name string
-	Stmt *db.Statement
+	Stmt *store.Statement
 
 	// Statement param types.
 	ParamOIDs []uint32
@@ -44,7 +44,7 @@ type PreparedStatement struct {
 // It is illegal to call this when a statement with that name
 // already exists (even for anonymous prepared statements).
 func (conn *ClientConn) addPreparedStatement(
-	name string, stmt *db.Statement, paramOids []uint32,
+	name string, stmt *store.Statement, paramOids []uint32,
 ) (*PreparedStatement, error) {
 	if _, ok := conn.prepStmts[name]; ok {
 		return nil, pgerror.New(pgerrcode.DuplicatePreparedStatement, fmt.Sprintf("prepared statement %q already exists", name))

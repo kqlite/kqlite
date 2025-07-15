@@ -11,10 +11,12 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/kqlite/kqlite/pkg/db"
+	"github.com/kqlite/kqlite/pkg/store"
+	"github.com/kqlite/kqlite/pkg/sysdb"
+
 	"github.com/jackc/pgx/v5/pgproto3"
 	"golang.org/x/sync/errgroup"
-
-	"github.com/kqlite/kqlite/pkg/db"
 )
 
 // Postgres settings.
@@ -35,7 +37,7 @@ type DBServer struct {
 	group errgroup.Group
 
 	// System database, storing system related data.
-	systemdb *db.DB
+	systemdb *db.Database
 
 	// Global server context
 	ctx    context.Context
@@ -47,6 +49,7 @@ type DBServer struct {
 	// Directory that holds SQLite databases.
 	DataDir string
 
+	// Connection stats.
 	connCounter int32
 }
 
@@ -72,6 +75,11 @@ func (server *DBServer) Start() (err error) {
 		return err
 	}
 
+	// Create system database schema.
+	if _, err = server.systemdb.Exec(sysdb.SystemSchema); err != nil {
+		return err
+	}
+
 	server.listener, err = net.Listen("tcp", server.Address)
 	if err != nil {
 		return err
@@ -79,7 +87,7 @@ func (server *DBServer) Start() (err error) {
 
 	server.group.Go(func() error {
 		if err := server.serve(); server.ctx.Err() != nil {
-			return err // return error unless context canceled
+			return err // return error unless context cancelled
 		}
 		return nil
 	})
@@ -107,7 +115,7 @@ func (server *DBServer) Stop() (err error) {
 	})
 	server.connections.Clear()
 
-	// Clear gloabal database connections pool.
+	// Clear global database connections pool.
 	db.ClearPool()
 
 	// Wait for goroutine's to finish.
@@ -136,8 +144,8 @@ func (server *DBServer) serve() error {
 
 		server.group.Go(func() error {
 			defer func() {
-				if conn.db != nil {
-					conn.db.Close()
+				if conn.st != nil {
+					conn.st.Close()
 				}
 				conn.Close()
 				server.connections.Delete(conn)
@@ -161,9 +169,6 @@ func (server *DBServer) serveConn(ctx context.Context, conn *ClientConn) error {
 	if err := server.handleConnStartup(ctx, conn); err != nil {
 		return fmt.Errorf("startup: %w", err)
 	}
-
-	// Create a query execution context for this DB connection.
-	conn.exeqc = conn.db.CreateContext(ctx)
 
 	for {
 		msg, err := conn.backend.Receive()
@@ -263,24 +268,43 @@ func (server *DBServer) handleStartupMessage(ctx context.Context, conn *ClientCo
 		conn.textDataOnly = true
 	}
 
+	// Set connection in replication mode (not a client connection).
+	user := getParameter(msg.Parameters, "User")
+	if user == "replication" {
+		conn.isReplicationConn = true
+	}
+
 	// TODO implement authentication.
 
+	// Open connection to SQL database.
 	walEnabled := true
 	fkEnabled := false
-	// Open connection to SQL database.
 	dbfilename := name + ".db"
-	if conn.db, err = db.Open(filepath.Join(server.DataDir, dbfilename), fkEnabled, walEnabled); err != nil {
+
+	dbconf := store.DBConfig{
+		OnDiskPath:    filepath.Join(server.DataDir, dbfilename),
+		FKConstraints: fkEnabled,
+		WalEnabled:    walEnabled,
+	}
+
+	// If connection is in replication mode (not a standard client connection),
+	// reflecting database changes from other nodes locally,
+	// store must be opened in non-replication (local) mode as there is no need replicating writes to others.
+	isReplicated := !conn.isReplicationConn
+	if conn.st, err = store.Open(isReplicated, dbconf); err != nil {
 		return err
 	}
 
 	// Initialize postgres catalog virtual tables.
-	if err = initCatatog(ctx, conn.db); err != nil {
+	if err = initCatatog(ctx, conn.st.GetDatabase()); err != nil {
 		return err
 	}
 
 	return writeMessages(conn,
 		&pgproto3.AuthenticationOk{},
 		&pgproto3.ParameterStatus{Name: "server_version", Value: ServerVersion},
+		&pgproto3.ParameterStatus{Name: "standard_conforming_strings", Value: "on"},
+		&pgproto3.ParameterStatus{Name: "client_encoding", Value: "UTF8"},
 		&pgproto3.ReadyForQuery{TxStatus: 'I'},
 	)
 }

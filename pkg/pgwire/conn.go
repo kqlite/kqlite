@@ -10,21 +10,24 @@ import (
 
 	"github.com/kqlite/kqlite/pkg/db"
 	"github.com/kqlite/kqlite/pkg/parser"
+	"github.com/kqlite/kqlite/pkg/store"
+	"github.com/kqlite/kqlite/pkg/util/command"
 	"github.com/kqlite/kqlite/pkg/util/pgerror"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
-
-	pg_query "github.com/pganalyze/pg_query_go/v6"
 )
 
 // Represents a database client session.
 type ClientConn struct {
 	net.Conn
+
+	// PostgreSQL backend wire protocol
 	backend *pgproto3.Backend
-	db      *db.DB
-	exeqc   *db.ExecuteQueryContext
+
+	// SQLite replicated database store.
+	st *store.DataStore
 
 	// Value types encoding and decoding.
 	typeMap *pgtype.Map
@@ -37,6 +40,9 @@ type ClientConn struct {
 
 	// Forcing to send data in Text format is required when this is a connection from psql client.
 	textDataOnly bool
+
+	// Indicates if this is a replication connection initiated from primary server.
+	isReplicationConn bool
 }
 
 func timer(name string) func() {
@@ -94,10 +100,19 @@ func (conn *ClientConn) handleQuery(ctx context.Context, msg *pgproto3.Query) er
 		return err
 	}
 
+	// COPY FROM command received,
+	// The CopyFrom statement is special.
+	// We need to detect it so we can hand control of the connection to a special handler.
+	// It will block this network routine until control is passed back.
+	if parser.IsCopyCommand(msg.String) {
+		log.Printf("Is copy :%s", msg.String)
+		return conn.handleCopy(ctx, msg)
+	}
+
 	// Rewrite system-information queries so they're tolerable by SQLite.
 	query := parser.RewriteQuery(msg.String)
 	if msg.String != query {
-		// Debug log the rewriten query.
+		// Debug log the rewritten query.
 		// log.Printf("query rewrite: %s", query)
 	}
 
@@ -111,18 +126,21 @@ func (conn *ClientConn) handleQuery(ctx context.Context, msg *pgproto3.Query) er
 		)
 	}
 
+	log.Printf("simple query :%s", query)
+
 	// Convert parser result to database statements.
-	var statements []db.Statement
+	var statements []store.Statement
 	if len(parserResult) != 0 {
 		for _, result := range parserResult {
-			statements = append(statements, db.Statement{
+			statements = append(statements, store.Statement{
 				Query:       result.Sql,
-				CmdType:     convertToStmtCmd(result),
+				CmdType:     command.ConvertToStmtCmd(result),
 				ReturnsRows: result.ReturnsRows,
 			})
 		}
 	} else {
-		rows, err := conn.db.QueryContext(context.TODO(), query)
+		// A read-only query not recognised from parser.
+		rows, err := conn.st.GetDatabase().QueryContext(ctx, query)
 		if err != nil {
 			log.Printf("execute query: %s, err: %s\n", query, err.Error())
 			return writeMessages(conn,
@@ -147,7 +165,7 @@ func (conn *ClientConn) handleQuery(ctx context.Context, msg *pgproto3.Query) er
 	}
 
 	// Execute all statements part of the SQL query.
-	response, err := conn.exeqc.Request(statements)
+	response, err := conn.st.Request(ctx, statements)
 	if err != nil {
 		log.Printf("execute query, err: %s\n", err.Error())
 		return writeMessages(conn,
@@ -231,16 +249,18 @@ func (conn *ClientConn) handleExecute(ctx context.Context, msg *pgproto3.Execute
 
 	stmt := *portal.Prepared.Stmt
 	stmt.Parameters = portal.Qargs
-	statements := []db.Statement{stmt}
+	statements := []store.Statement{stmt}
 
 	// Execute SQL statement.
-	response, err := conn.exeqc.Request(statements)
+	response, err := conn.st.Request(ctx, statements)
 	if err != nil {
 		log.Printf("Error from query %s\n", err.Error())
 		return writeMessages(conn,
 			&pgproto3.ErrorResponse{Message: err.Error()},
 			&pgproto3.ReadyForQuery{TxStatus: 'I'})
 	}
+
+	//log.Printf("stmt %s\n", stmt.Query)
 
 	resp := response[0]
 	// Handle error from the statement execution.
@@ -434,25 +454,26 @@ func (conn *ClientConn) handleParse(ctx context.Context, msg *pgproto3.Parse) er
 
 	// The query string contained in a Parse message cannot include more than one SQL statement;
 	// else a syntax error is reported.
-	if len(parserResult) > 1 {
+	if len(parserResult) != 1 {
 		return writeMessages(conn,
-			&pgproto3.ErrorResponse{Message: "Wrong number of prepared statements",
+			&pgproto3.ErrorResponse{Message: "Wrong number of prepared statements or invalid statement",
 				Code: pgerrcode.InvalidPreparedStatementDefinition})
 	}
 
 	// Convert parser result to database statement.
-	stmt := &db.Statement{
+	stmt := &store.Statement{
 		Query:       parserResult[0].Sql,
-		CmdType:     convertToStmtCmd(parserResult[0]),
+		CmdType:     command.ConvertToStmtCmd(parserResult[0]),
 		ReturnsRows: parserResult[0].ReturnsRows,
 	}
 
-	// Check if Parse message contains any paremter type hints.
+	// Check if Parse message contains any parameter type hints.
+	// The client may provide type information for (some of) the placeholders.
 	var paramTypes []uint32
 	if len(msg.ParameterOIDs) == 0 {
 		var err error
 		// Extract statement parameters located in the query text.
-		paramTypes, err = db.LookupTypeInfo(ctx, conn.db, parserResult[0].ArgColumns, parserResult[0].Tables)
+		paramTypes, err = db.LookupTypeInfo(ctx, conn.st.GetDatabase(), parserResult[0].ArgColumns, parserResult[0].Tables)
 		if err != nil {
 			return err
 		}
@@ -460,6 +481,7 @@ func (conn *ClientConn) handleParse(ctx context.Context, msg *pgproto3.Parse) er
 		paramTypes = msg.ParameterOIDs
 	}
 
+	// TODO Debug
 	// fmt.Printf("paramTypes %v\n", paramTypes)
 
 	// Create prepare statement and add it to cache.
@@ -472,38 +494,4 @@ func (conn *ClientConn) handleParse(ctx context.Context, msg *pgproto3.Parse) er
 
 	// Parsing complete.
 	return writeMessages(conn, &pgproto3.ParseComplete{})
-}
-
-// Will convert parser commands types to database statement commands.
-func convertToStmtCmd(stmtResult parser.ParserStmtResult) db.SqlCmdType {
-	// Transaction commands.
-	if stmtResult.TxCmd != pg_query.TransactionStmtKind_TRANSACTION_STMT_KIND_UNDEFINED {
-		switch stmtResult.TxCmd {
-		case pg_query.TransactionStmtKind_TRANS_STMT_BEGIN:
-			return db.CMD_BEGIN
-
-		case pg_query.TransactionStmtKind_TRANS_STMT_COMMIT:
-			return db.CMD_COMMIT
-
-		case pg_query.TransactionStmtKind_TRANS_STMT_ROLLBACK:
-			return db.CMD_ROLLBACK
-		}
-	}
-	// Common SQL commands.
-	if stmtResult.SqlCmd != pg_query.CmdType_CMD_TYPE_UNDEFINED {
-		switch stmtResult.SqlCmd {
-		case pg_query.CmdType_CMD_SELECT:
-			return db.CMD_SELECT
-
-		case pg_query.CmdType_CMD_INSERT:
-			return db.CMD_INSERT
-
-		case pg_query.CmdType_CMD_DELETE:
-			return db.CMD_DELETE
-
-		case pg_query.CmdType_CMD_UPDATE:
-			return db.CMD_UPDATE
-		}
-	}
-	return ""
 }

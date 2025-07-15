@@ -233,6 +233,11 @@ func isSpecialQuery(sql string) bool {
 	return true
 }
 
+// Check if query is COPY FROM statement.
+func IsCopyCommand(q string) bool {
+	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(q)), "COPY")
+}
+
 // Parse a SQL query string, can have multiple statements.
 func Parse(sql string) ([]ParserStmtResult, error) {
 	var result []ParserStmtResult

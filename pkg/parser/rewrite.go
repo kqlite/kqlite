@@ -50,6 +50,12 @@ func RewriteQuery(q string) string {
 	// Rewrite "SHOW" commands into function calls.
 	q = showRegex.ReplaceAllString(q, "SELECT show('$1')")
 
+	// Replace serialised blob's from https://github.com/jackc/pgx/blob/master/internal/sanitize/sanitize.go.
+	// Also kqlite is using the simple-query protocol for replication by sending the write queries along with data in serialised text format.
+	// Binary data (BLOB) needs to be serialised and deserialised upon receiving before data enters DB.
+	// The deserialization is done from sqlite by using the 'unhex' builtin https://www.sqlite.org/lang_corefunc.html#unhex.
+	q = blobSerializedRegex.ReplaceAllString(q, "unhex('$1')")
+
 	return replaceArgStubs(q)
 }
 
@@ -61,4 +67,6 @@ var (
 	pgCatalogRegex = regexp.MustCompile(`\bpg_catalog\.`)
 
 	showRegex = regexp.MustCompile(`^SHOW (\w+)`)
+
+	blobSerializedRegex = regexp.MustCompile(`\'\\x([^\\x,]+)\'`)
 )
