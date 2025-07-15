@@ -2,7 +2,7 @@
  <img alt="rqlite logo" src="kqlite-logo-with-text.png" height=100>
 </picture>
 
-# 
+---
 
 [![Experimental](https://img.shields.io/badge/status-experimental-orange.svg)](https://shields.io/)
 [![CI](https://github.com/kqlite/kqlite/actions/workflows/ci.yml/badge.svg)](https://github.com/kqlite/kqlite/actions/workflows/go.yml) 
