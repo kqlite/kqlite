@@ -13,6 +13,7 @@ import (
 
 	"github.com/kqlite/kqlite/pkg/db"
 	"github.com/kqlite/kqlite/pkg/store"
+	"github.com/kqlite/kqlite/pkg/sysdb"
 
 	"github.com/jackc/pgx/v5/pgproto3"
 	"golang.org/x/sync/errgroup"
@@ -74,6 +75,11 @@ func (server *DBServer) Start() (err error) {
 		return err
 	}
 
+	// Create system database schema.
+	if _, err = server.systemdb.Exec(sysdb.SystemSchema); err != nil {
+		return err
+	}
+
 	server.listener, err = net.Listen("tcp", server.Address)
 	if err != nil {
 		return err
@@ -81,7 +87,7 @@ func (server *DBServer) Start() (err error) {
 
 	server.group.Go(func() error {
 		if err := server.serve(); server.ctx.Err() != nil {
-			return err // return error unless context canceled
+			return err // return error unless context cancelled
 		}
 		return nil
 	})
@@ -109,7 +115,7 @@ func (server *DBServer) Stop() (err error) {
 	})
 	server.connections.Clear()
 
-	// Clear gloabal database connections pool.
+	// Clear global database connections pool.
 	db.ClearPool()
 
 	// Wait for goroutine's to finish.
@@ -262,6 +268,12 @@ func (server *DBServer) handleStartupMessage(ctx context.Context, conn *ClientCo
 		conn.textDataOnly = true
 	}
 
+	// Set connection in replication mode (not a client connection).
+	user := getParameter(msg.Parameters, "User")
+	if user == "replication" {
+		conn.isReplicationConn = true
+	}
+
 	// TODO implement authentication.
 
 	// Open connection to SQL database.
@@ -275,7 +287,11 @@ func (server *DBServer) handleStartupMessage(ctx context.Context, conn *ClientCo
 		WalEnabled:    walEnabled,
 	}
 
-	if conn.st, err = store.Open(dbconf); err != nil {
+	// If connection is in replication mode (not a standard client connection),
+	// reflecting database changes from other nodes locally,
+	// store must be opened in non-replication (local) mode as there is no need replicating writes to others.
+	isReplicated := !conn.isReplicationConn
+	if conn.st, err = store.Open(isReplicated, dbconf); err != nil {
 		return err
 	}
 
@@ -287,6 +303,8 @@ func (server *DBServer) handleStartupMessage(ctx context.Context, conn *ClientCo
 	return writeMessages(conn,
 		&pgproto3.AuthenticationOk{},
 		&pgproto3.ParameterStatus{Name: "server_version", Value: ServerVersion},
+		&pgproto3.ParameterStatus{Name: "standard_conforming_strings", Value: "on"},
+		&pgproto3.ParameterStatus{Name: "client_encoding", Value: "UTF8"},
 		&pgproto3.ReadyForQuery{TxStatus: 'I'},
 	)
 }
