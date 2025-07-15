@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/signal"
 
+	"github.com/kqlite/kqlite/pkg/cluster"
+	"github.com/kqlite/kqlite/pkg/connpool"
 	"github.com/kqlite/kqlite/pkg/pgwire"
 )
 
@@ -24,6 +26,7 @@ func main() {
 func run(ctx context.Context) error {
 	addr := flag.String("addr", ":5432", "postgres protocol bind address")
 	dataDir := flag.String("data-dir", "", "data directory")
+	joinAddr := flag.String("join", "", "host:db to join")
 	flag.Parse()
 
 	if *dataDir == "" {
@@ -39,6 +42,21 @@ func run(ctx context.Context) error {
 	server := pgwire.NewServer(*addr, *dataDir)
 	if err := server.Start(); err != nil {
 		return err
+	}
+
+	isPrimary := true
+	if *joinAddr != "" {
+		isPrimary := true
+		cluster.SetRole(!isPrimary)
+	} else {
+		cluster.SetRole(isPrimary)
+	}
+
+	if cluster.IsPrimary() {
+		log.Printf("Openning replication link")
+		if err := connpool.NewConnection(context.Background(), "localhost", "kine"); err != nil {
+			return err
+		}
 	}
 
 	log.Printf("listening on %s", server.Address)
