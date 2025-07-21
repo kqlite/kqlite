@@ -181,7 +181,6 @@ func (dbase *Database) BusyTimeout() (rwMs, roMs int, err error) {
 	if err != nil {
 		return 0, 0, err
 	}
-
 	return rwMs, roMs, nil
 }
 
@@ -220,7 +219,6 @@ func (dbase *Database) CheckpointWithTimeout(mode CheckpointMode, dur time.Durat
 	if ok != 0 {
 		return fmt.Errorf("failed to completely checkpoint WAL (%d ok, %d pages, %d moved)", ok, nPages, nMoved)
 	}
-
 	return nil
 }
 
@@ -301,7 +299,6 @@ func (dbase *Database) StmtReadOnly(sql string) (bool, error) {
 		return false, err
 	}
 	defer conn.Close()
-
 	return dbase.StmtReadOnlyWithConn(sql, conn)
 }
 
@@ -324,7 +321,6 @@ func (dbase *Database) StmtReadOnlyWithConn(sql string, conn *sql.Conn) (bool, e
 	if err := conn.Raw(f); err != nil {
 		return false, err
 	}
-
 	return readOnly, nil
 }
 

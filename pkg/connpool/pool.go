@@ -69,7 +69,6 @@ func NewConnection(ctx context.Context, host, dbname string) error {
 	if err != nil {
 		return err
 	}
-
 	// Always use simple query protocol for replication.
 	config.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 	config.BeforeAcquire = beforeAcquire
@@ -107,7 +106,6 @@ func ExecContext(ctx context.Context, dbname string, sql string, args ...any) er
 	if err != nil {
 		return err
 	}
-
 	_, err = p.Exec(ctx, sql, args...)
 	return err
 }
