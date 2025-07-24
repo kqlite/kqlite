@@ -8,10 +8,20 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/kqlite/kqlite/pkg/cluster"
-	"github.com/kqlite/kqlite/pkg/connpool"
 	"github.com/kqlite/kqlite/pkg/pgwire"
+	"github.com/kqlite/kqlite/pkg/store"
 )
+
+const logo = `
+ _         _ _ _       
+| |       | (_) |      
+| | ______| |_| |_ ___ 
+| |/ / _  | | | __/ _ \  Lightweight remote high available SQLite.
+|   < (_| | | | ||  __/  kqlite.io
+|_|\_\__, |_|_|\__\___|
+        | |            
+        |_|            
+`
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -24,41 +34,32 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	addr := flag.String("addr", ":5432", "postgres protocol bind address")
+	addr := flag.String("addr", ":5432", "server bind address")
 	dataDir := flag.String("data-dir", "", "data directory")
-	joinAddr := flag.String("join", "", "host:db to join")
+	joinAddr := flag.String("join-addr", "", "join/connect to a remote node, for example :5432")
+	joinDb := flag.String("join-db", "*", "join/connect to a database for replication, can be a ',' separated list")
 	flag.Parse()
 
 	if *dataDir == "" {
 		return fmt.Errorf("required: -data-dir PATH")
 	}
-
 	if err := os.Setenv("DATA_DIR", *dataDir); err != nil {
 		return err
 	}
-
+	fmt.Print(logo)
 	log.SetFlags(0)
 
+	if *joinAddr != "" && *joinDb == "" {
+		return fmt.Errorf("required: -join-db NAME when -join-addr specified")
+	}
+
+	if err := store.Bootstrap(*joinAddr, *joinDb); err != nil {
+		return err
+	}
 	server := pgwire.NewServer(*addr, *dataDir)
 	if err := server.Start(); err != nil {
 		return err
 	}
-
-	isPrimary := true
-	if *joinAddr != "" {
-		isPrimary := true
-		cluster.SetRole(!isPrimary)
-	} else {
-		cluster.SetRole(isPrimary)
-	}
-
-	if cluster.IsPrimary() {
-		log.Printf("Openning replication link")
-		if err := connpool.NewConnection(context.Background(), "localhost", "kine"); err != nil {
-			return err
-		}
-	}
-
 	log.Printf("listening on %s", server.Address)
 
 	// Wait on signal before shutting down.

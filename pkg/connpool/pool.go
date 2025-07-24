@@ -47,7 +47,7 @@ func connHealthCheck(conn *pgx.Conn) error {
 
 // Open new replication connection with target parameters host and database name.
 // If connections already exists, a new connection isn't established.
-func NewConnection(ctx context.Context, host, dbname string) error {
+func NewConnection(ctx context.Context, host, port, dbname string) error {
 	if host == "" || dbname == "" {
 		return ErrInvalidConnParams
 	}
@@ -64,7 +64,7 @@ func NewConnection(ctx context.Context, host, dbname string) error {
 		return true
 	}
 
-	connString := fmt.Sprintf("user=replication password=replication host=%s port=5433 dbname=%s sslmode=disable", host, dbname)
+	connString := fmt.Sprintf("user=replication password=replication host=%s port=%s dbname=%s sslmode=disable", host, port, dbname)
 	config, err := pgxpool.ParseConfig(connString)
 	if err != nil {
 		return err
