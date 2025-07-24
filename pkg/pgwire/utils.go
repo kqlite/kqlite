@@ -306,7 +306,7 @@ func getParameter(m map[string]string, k string) string {
 func initCatatog(ctx context.Context, dbase *db.Database) error {
 	// Attach an in-memory database for pg_catalog.
 	if _, err := dbase.ExecContext(ctx, `ATTACH ':memory:' AS pg_catalog`); err != nil {
-		// Already attached do nothing.
+		// Already attached, do nothing.
 		if err.Error() == "database pg_catalog is already in use" {
 			return nil
 		}
