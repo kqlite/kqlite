@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kqlite/kqlite/pkg/sysdb"
+	"github.com/kqlite/kqlite/pkg/util/command"
 	"github.com/mattn/go-sqlite3"
 )
 
@@ -167,7 +168,6 @@ func (dbase *Database) SetBusyTimeout(rwMs, roMs int) (err error) {
 			return err
 		}
 	}
-
 	return nil
 }
 
@@ -276,6 +276,20 @@ func (dbase *Database) Query(query string, args ...any) (*sql.Rows, error) {
 	return nil, nil
 }
 
+// A tiny wrapper around sql.QueryRow.
+// Executes a query that returns a single row, typically a SELECT. The args are for any placeholder parameters in the query.
+func (dbase *Database) QueryRow(query string, args ...any) *sql.Row {
+	if query != "" {
+		ro, _ := dbase.StmtReadOnly(query)
+		if ro {
+			return dbase.rodb.QueryRow(query, args...)
+		} else {
+			return dbase.rwdb.QueryRow(query, args...)
+		}
+	}
+	return nil
+}
+
 // A tiny wrapper around sql.QueryContext.
 // Executes a query that returns rows, typically a SELECT. The args are for any placeholder parameters in the query.
 func (dbase *Database) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
@@ -329,7 +343,63 @@ func (dbase *Database) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.T
 	return dbase.rwdb.BeginTx(ctx, opts)
 }
 
+// Get database name without file extension.
 func (dbase *Database) GetName() string {
 	_, file := filepath.Split(dbase.path)
 	return strings.TrimSuffix(file, ".db")
+}
+
+// UpdateHookCallback is a callback function that is called before a row is modified
+// in the database.
+type UpdateHookCallback func(ev *command.UpdateHookEvent) error
+
+// RegisterUpdateHook registers a callback that is called when a row is modified
+// in the database. If a callback is already registered, it is replaced. If hook is nil,
+// the callback is removed.
+func (dbase *Database) RegisterUpdateHook(hook UpdateHookCallback) error {
+	// Convert from SQLite hook data to rqlite hook data.
+	convertFn := func(op int, _, table string, rowID int64) (*command.UpdateHookEvent, error) {
+		ev := &command.UpdateHookEvent{
+			Table: table,
+			RowId: rowID,
+		}
+
+		switch op {
+		case sqlite3.SQLITE_INSERT:
+			ev.Op = command.UpdateHookEvent_INSERT
+		case sqlite3.SQLITE_UPDATE:
+			ev.Op = command.UpdateHookEvent_UPDATE
+		case sqlite3.SQLITE_DELETE:
+			ev.Op = command.UpdateHookEvent_DELETE
+		default:
+			return nil, fmt.Errorf("unknown update hook operation %d", op)
+		}
+		return ev, nil
+	}
+
+	// Register the callback with the SQLite connection.
+	var cb func(int, string, string, int64)
+	if hook != nil {
+		cb = func(op int, dbName, tblName string, rowID int64) {
+			ev, err := convertFn(op, dbName, tblName, rowID)
+			if err != nil {
+				ev.Error = err.Error()
+			}
+		}
+	}
+	f := func(driverConn any) error {
+		conn := driverConn.(*sqlite3.SQLiteConn)
+		conn.RegisterUpdateHook(cb)
+		return nil
+	}
+
+	conn, err := dbase.rwdb.Conn(context.Background())
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if err := conn.Raw(f); err != nil {
+		return err
+	}
+	return nil
 }
