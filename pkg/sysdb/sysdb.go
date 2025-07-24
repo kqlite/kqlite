@@ -12,6 +12,26 @@ import (
 
 const DriverName = "kqlite-sqlite3"
 
+// Kqlite system database/catalog name and schema definitions.
+const (
+	// Catalog name, for remote DSN.
+	Catalog = "kqlite"
+
+	// Catalog filename, for local DSN.
+	CatalogFile = "kqlite.db"
+
+	// Catalog schema/table definitions.
+	// addr is in the form host:port or :port
+	CatalogSchema = `
+CREATE TABLE IF NOT EXISTS replicas
+	(
+		id		INTEGER PRIMARY KEY AUTOINCREMENT,
+		addr	TEXT,
+		db		TEXT
+	)
+	`
+)
+
 func init() {
 	sql.Register(DriverName, &sqlite3.SQLiteDriver{
 		ConnectHook: func(conn *sqlite3.SQLiteConn) error {
