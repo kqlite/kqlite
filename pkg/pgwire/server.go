@@ -13,7 +13,6 @@ import (
 
 	"github.com/kqlite/kqlite/pkg/db"
 	"github.com/kqlite/kqlite/pkg/store"
-	"github.com/kqlite/kqlite/pkg/sysdb"
 
 	"github.com/jackc/pgx/v5/pgproto3"
 	"golang.org/x/sync/errgroup"
@@ -22,7 +21,6 @@ import (
 // Postgres settings.
 const (
 	ServerVersion = "14.0.0"
-	systemDB      = "kqlite.db"
 )
 
 // Represents the database server to serve client connections.
@@ -66,17 +64,6 @@ func NewServer(address, datadir string) *DBServer {
 func (server *DBServer) Start() (err error) {
 	// Ensure data directory exists.
 	if _, err = os.Stat(server.DataDir); err != nil {
-		return err
-	}
-
-	// Open connection to the system database.
-	server.systemdb, err = db.Open(filepath.Join(server.DataDir, systemDB), false, false)
-	if err != nil {
-		return err
-	}
-
-	// Create system database schema.
-	if _, err = server.systemdb.Exec(sysdb.SystemSchema); err != nil {
 		return err
 	}
 
@@ -294,12 +281,6 @@ func (server *DBServer) handleStartupMessage(ctx context.Context, conn *ClientCo
 	if conn.st, err = store.Open(isReplicated, dbconf); err != nil {
 		return err
 	}
-
-	// Initialize postgres catalog virtual tables.
-	if err = initCatatog(ctx, conn.st.GetDatabase()); err != nil {
-		return err
-	}
-
 	return writeMessages(conn,
 		&pgproto3.AuthenticationOk{},
 		&pgproto3.ParameterStatus{Name: "server_version", Value: ServerVersion},

@@ -199,7 +199,6 @@ func StmtToSql(stmt Statement) string {
 	if len(stmt.Parameters) == 0 {
 		return sql
 	}
-
 	// Prepare replace regex and replace arguments.
 	re := regexp.MustCompile(`\$\d+`)
 	sql = re.ReplaceAllString(sql, "%v")
@@ -250,6 +249,7 @@ func (ds *DataStore) ExecuteRemoteRequest(ctx context.Context, statements []Stat
 func (ds *DataStore) ExecuteLocalRequest(ctx context.Context, statements []Statement) ([]QueryResponse, error) {
 	var err error
 	var response []QueryResponse
+	executor := execQuery(ds.dbase)
 
 	// abortOnError indicates whether the caller should continue
 	// processing or break.
@@ -261,9 +261,7 @@ func (ds *DataStore) ExecuteLocalRequest(ctx context.Context, statements []State
 		}
 		return false
 	}
-
-	executor := execQuery(ds.dbase)
-
+	// Process statements
 	for _, stmt := range statements {
 		resp, err := ds.handleLocalTransaction(ctx, stmt)
 		if resp.CommandTag != "" {
@@ -272,7 +270,6 @@ func (ds *DataStore) ExecuteLocalRequest(ctx context.Context, statements []State
 		if err != nil {
 			return response, err
 		}
-
 		// set executor if in transaction context.
 		if ds.localTx != nil {
 			executor = ds.localTx
@@ -290,13 +287,11 @@ func (ds *DataStore) ExecuteLocalRequest(ctx context.Context, statements []State
 				Rows:       rows,
 				CommandTag: fmt.Sprintf("%s 1", stmt.Query),
 			})
-
 			if abortOnError(err) {
 				break
 			}
 		} else {
 			result, err := executor.ExecContext(ctx, stmt.Query, stmt.Parameters...)
-
 			if err != nil {
 				fmt.Printf("Error from query %s", err.Error())
 				// TODO SQLITE_CONSTRAINT_UNIQUE
@@ -309,7 +304,6 @@ func (ds *DataStore) ExecuteLocalRequest(ctx context.Context, statements []State
 			if result != nil {
 				rowsAffected, _ = result.RowsAffected()
 			}
-
 			response = append(response, QueryResponse{
 				Error:      err,
 				CommandTag: fmt.Sprintf("%s, %d", string(stmt.CmdType), rowsAffected),
@@ -336,11 +330,11 @@ func (ds *DataStore) Request(ctx context.Context, statements []Statement) ([]Que
 		if err != nil {
 			return response, err
 		}
-
-		// Exclude failed local statements to keep consistent.
-		failed := mapFailedStatements(response)
-		writeStmts := ds.getWriteStaments(statements, failed)
+		// Proceed to replicating write statements only.
 		if activeReplica {
+			// Exclude failed local statements to keep consistent.
+			failed := mapFailedStatements(response)
+			writeStmts := ds.getWriteStaments(statements, failed)
 			// Replicate writes to remote replica node (secondary)
 			if len(writeStmts) != 0 {
 				err := ds.ExecuteRemoteRequest(ctx, writeStmts)
@@ -355,7 +349,6 @@ func (ds *DataStore) Request(ctx context.Context, statements []Statement) ([]Que
 			// TODO execute remote
 			// err = ds.ExecuteRemoteRequest(ctx, statements)
 		}
-
 		// Execute locally after replicated sucessfully.
 		response, err = ds.ExecuteLocalRequest(ctx, statements)
 	}

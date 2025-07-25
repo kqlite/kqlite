@@ -6,8 +6,12 @@ import (
 
 var isPrimary atomic.Bool
 
-func SetRole(asPrimary bool) {
-	isPrimary.Store(asPrimary)
+func SetPrimary() {
+	isPrimary.Store(true)
+}
+
+func SetSecondary() {
+	isPrimary.Store(false)
 }
 
 func IsPrimary() bool {
