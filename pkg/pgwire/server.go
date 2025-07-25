@@ -281,12 +281,6 @@ func (server *DBServer) handleStartupMessage(ctx context.Context, conn *ClientCo
 	if conn.st, err = store.Open(isReplicated, dbconf); err != nil {
 		return err
 	}
-
-	// Initialize postgres catalog virtual tables.
-	if err = initCatatog(ctx, conn.st.GetDatabase()); err != nil {
-		return err
-	}
-
 	return writeMessages(conn,
 		&pgproto3.AuthenticationOk{},
 		&pgproto3.ParameterStatus{Name: "server_version", Value: ServerVersion},

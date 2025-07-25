@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net"
@@ -12,7 +13,6 @@ import (
 	"github.com/kqlite/kqlite/pkg/cluster"
 	"github.com/kqlite/kqlite/pkg/connpool"
 	"github.com/kqlite/kqlite/pkg/db"
-	"github.com/kqlite/kqlite/pkg/sysdb"
 	"github.com/kqlite/kqlite/pkg/util/command"
 )
 
@@ -45,25 +45,23 @@ func sendJoinRequest(joinAddr, joinDb string) error {
 		fmt.Sprintf("postgres://%s:%s/%s?default_query_exec_mode=simple_protocol?sslmode=disable",
 			host,
 			port,
-			sysdb.Catalog))
+			ReplicaDB))
 	if err != nil {
 		return err
 	}
 	defer conn.Close(context.Background())
 
 	var joinId int
-	if err := conn.QueryRow(context.Background(),
-		fmt.Sprintf("SELECT id FROM replicas WHERE addr='%s' and db='%s'", joinAddr, joinDb)).Scan(&joinId); err != nil {
-		// Already joined.
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
+	err = conn.QueryRow(context.Background(),
+		fmt.Sprintf("SELECT id FROM replicas WHERE addr='%s' and db='%s'", joinAddr, joinDb)).Scan(&joinId)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	} else if errors.Is(err, pgx.ErrNoRows) {
+		// Send join request as specified.
+		if _, err = conn.Exec(context.Background(),
+			fmt.Sprintf("INSERT INTO replicas VALUES('%s', '%s')", joinAddr, joinDb)); err != nil {
+			return err
 		}
-		return err
-	}
-	// Send join request as specified.
-	if _, err = conn.Exec(context.Background(),
-		fmt.Sprintf("INSERT INTO replicas VALUES('%s', '%s')", joinAddr, joinDb)); err != nil {
-		return err
 	}
 	return nil
 }
@@ -72,10 +70,16 @@ func sendJoinRequest(joinAddr, joinDb string) error {
 func checkForJoinRequest(dbcatalog *db.Database) (bool, error) {
 	var addr string
 	var dbname string
-	err := dbcatalog.QueryRow("SELECT addr, db FROM replicas").Scan(&addr, &dbname)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if err := dbcatalog.QueryRow("SELECT addr, db FROM replicas").Scan(&addr, &dbname); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	if addr == "" && dbname == "" {
 		return false, nil
 	}
+
 	host, port, err := getHostPort(addr)
 	if err != nil {
 		return false, err
@@ -91,7 +95,7 @@ func checkForJoinRequest(dbcatalog *db.Database) (bool, error) {
 
 // Install a watch cb function to be notified when join request comes in.
 func watchForJoinRequest() error {
-	dbcatalog, err := db.Open(filepath.Join(os.Getenv("DATA_DIR"), sysdb.CatalogFile), false, false)
+	dbcatalog, err := db.Open(filepath.Join(os.Getenv("DATA_DIR"), ReplicaDBFile), false, false)
 	if err != nil {
 		return err
 	}
@@ -99,7 +103,7 @@ func watchForJoinRequest() error {
 
 	watchJoinHook := func(ev *command.UpdateHookEvent) error {
 		if ev.Table == "replicas" && ev.Op == command.UpdateHookEvent_INSERT {
-			connCatalog, err := db.Open(filepath.Join(os.Getenv("DATA_DIR"), sysdb.CatalogFile), false, false)
+			connCatalog, err := db.Open(filepath.Join(os.Getenv("DATA_DIR"), ReplicaDBFile), false, false)
 			if err != nil {
 				return err
 			}
@@ -121,14 +125,14 @@ func watchForJoinRequest() error {
 // DataStore will be either in primary or secondary/replica mode.
 func Bootstrap(joinAddr, joinDb string) error {
 	// Open connection to the system database and create system catalog if not created.
-	dbcatalog, err := db.Open(filepath.Join(os.Getenv("DATA_DIR"), sysdb.CatalogFile), false, false)
+	dbcatalog, err := db.Open(filepath.Join(os.Getenv("DATA_DIR"), ReplicaDBFile), false, false)
 	if err != nil {
 		return err
 	}
 	defer dbcatalog.Close()
 
 	// Create initial system database/catalog schema.
-	if _, err = dbcatalog.Exec(sysdb.CatalogSchema); err != nil {
+	if _, err = dbcatalog.Exec(ReplicasSchema); err != nil {
 		return err
 	}
 	// Add join candidate to the system catalog and set cluster role.

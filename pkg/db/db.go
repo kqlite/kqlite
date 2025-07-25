@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kqlite/kqlite/pkg/sysdb"
+	"github.com/kqlite/kqlite/pkg/catalog"
 	"github.com/kqlite/kqlite/pkg/util/command"
 	"github.com/mattn/go-sqlite3"
 )
@@ -86,7 +86,7 @@ func openSQLiteDB(dbPath string, readOnly, fkEnabled, wal bool) (*sql.DB, error)
 	// Read-only connection
 	if readOnly {
 		rodsn := makeDSN(dbPath, readOnly, fkEnabled, wal)
-		rodb, err := sql.Open(sysdb.DriverName, rodsn)
+		rodb, err := sql.Open(catalog.DriverName, rodsn)
 		if err != nil {
 			return nil, err
 		}
@@ -99,7 +99,7 @@ func openSQLiteDB(dbPath string, readOnly, fkEnabled, wal bool) (*sql.DB, error)
 
 	// RW connection
 	rwdsn := makeDSN(dbPath, readOnly, fkEnabled, wal)
-	rwdb, err := sql.Open(sysdb.DriverName, rwdsn)
+	rwdb, err := sql.Open(catalog.DriverName, rwdsn)
 	if err != nil {
 		return nil, err
 	}
