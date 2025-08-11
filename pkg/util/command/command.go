@@ -64,7 +64,10 @@ func ConvertToStmtCmd(stmtResult parser.ParserStmtResult) SQLCommandType {
 
 		case pg_query.CmdType_CMD_UPDATE:
 			return UPDATE
+
+		default:
+			return UNKNOWN
 		}
 	}
-	return ""
+	return UNKNOWN
 }

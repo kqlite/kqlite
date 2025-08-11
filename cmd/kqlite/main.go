@@ -53,7 +53,7 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("required: -join-db NAME when -join-addr specified")
 	}
 
-	if err := store.Bootstrap(*joinAddr, *joinDb); err != nil {
+	if err := store.Bootstrap(*addr, *joinAddr, *joinDb); err != nil {
 		return err
 	}
 	server := pgwire.NewServer(*addr, *dataDir)

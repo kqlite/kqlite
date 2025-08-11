@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -34,7 +35,7 @@ func getHostPort(addr string) (host, port string, err error) {
 
 // Send join request for this node/replica address to request replication for 'joinDb' database.
 // Request is send via PostgreSQL wire protocol using an SQL query and writing to primary node system catalog.
-func sendJoinRequest(joinAddr, joinDb string) error {
+func sendJoinRequest(localAddr, joinAddr, joinDb string) error {
 	// Get connection params.
 	host, port, err := getHostPort(joinAddr)
 	if err != nil {
@@ -42,7 +43,7 @@ func sendJoinRequest(joinAddr, joinDb string) error {
 	}
 	// Connect to primary node's system database/catalog and send join request.
 	conn, err := pgx.Connect(context.Background(),
-		fmt.Sprintf("postgres://%s:%s/%s?default_query_exec_mode=simple_protocol?sslmode=disable",
+		fmt.Sprintf("postgres://%s:%s/%s?prefer_simple_protocol=true?sslmode=disable",
 			host,
 			port,
 			ReplicaDB))
@@ -52,25 +53,36 @@ func sendJoinRequest(joinAddr, joinDb string) error {
 	defer conn.Close(context.Background())
 
 	var joinId int
+	hostname, _ := os.Hostname()
+	_, localPort, err := getHostPort(localAddr)
+	if err != nil {
+		return err
+	}
+	hostAddr := fmt.Sprintf("%s:%s", hostname, localPort)
 	err = conn.QueryRow(context.Background(),
-		fmt.Sprintf("SELECT id FROM replicas WHERE addr='%s' and db='%s'", joinAddr, joinDb)).Scan(&joinId)
+		fmt.Sprintf("SELECT id FROM replicas WHERE addr='%s' and db='%s'", hostAddr, joinDb)).Scan(&joinId)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	} else if errors.Is(err, pgx.ErrNoRows) {
 		// Send join request as specified.
 		if _, err = conn.Exec(context.Background(),
-			fmt.Sprintf("INSERT INTO replicas VALUES('%s', '%s')", joinAddr, joinDb)); err != nil {
+			fmt.Sprintf("INSERT INTO replicas (addr, db) VALUES('%s', '%s')", hostAddr, joinDb)); err != nil {
 			return err
 		}
+	}
+	// Open a replication link to primary.
+	log.Printf("Openning bi-directional replication link")
+	if err := connpool.NewConnection(context.Background(), host, port, joinDb); err != nil {
+		return err
 	}
 	return nil
 }
 
 // Check for pending join request and open replication link to target node:database.
-func checkForJoinRequest(dbcatalog *db.Database) (bool, error) {
+func checkForJoinRequest(conndb *db.Database) (bool, error) {
 	var addr string
 	var dbname string
-	if err := dbcatalog.QueryRow("SELECT addr, db FROM replicas").Scan(&addr, &dbname); err != nil {
+	if err := conndb.QueryRow("SELECT addr, db FROM replicas").Scan(&addr, &dbname); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
 		}
@@ -85,7 +97,7 @@ func checkForJoinRequest(dbcatalog *db.Database) (bool, error) {
 		return false, err
 	}
 	// TODO logging
-	// log.Printf("Openning replication link")
+	log.Printf("Openning replication link")
 	// Open a replication link.
 	if err := connpool.NewConnection(context.Background(), host, port, dbname); err != nil {
 		return true, err
@@ -95,27 +107,27 @@ func checkForJoinRequest(dbcatalog *db.Database) (bool, error) {
 
 // Install a watch cb function to be notified when join request comes in.
 func watchForJoinRequest() error {
-	dbcatalog, err := db.Open(filepath.Join(os.Getenv("DATA_DIR"), ReplicaDBFile), false, false)
+	replicasdb, err := db.Open(filepath.Join(os.Getenv("DATA_DIR"), ReplicaDBFile), false, false, false)
 	if err != nil {
 		return err
 	}
-	defer dbcatalog.Close()
+	defer replicasdb.Close()
 
 	watchJoinHook := func(ev *command.UpdateHookEvent) error {
 		if ev.Table == "replicas" && ev.Op == command.UpdateHookEvent_INSERT {
-			connCatalog, err := db.Open(filepath.Join(os.Getenv("DATA_DIR"), ReplicaDBFile), false, false)
+			conndb, err := db.Open(filepath.Join(os.Getenv("DATA_DIR"), ReplicaDBFile), false, false, false)
 			if err != nil {
 				return err
 			}
-			defer connCatalog.Close()
-			if _, err := checkForJoinRequest(dbcatalog); err != nil {
+			defer conndb.Close()
+			if _, err := checkForJoinRequest(conndb); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
 
-	if err := dbcatalog.RegisterUpdateHook(watchJoinHook); err != nil {
+	if err := replicasdb.RegisterUpdateHook(watchJoinHook); err != nil {
 		return err
 	}
 	return nil
@@ -123,28 +135,34 @@ func watchForJoinRequest() error {
 
 // Bootstraps the DataStore with initial configuration.
 // DataStore will be either in primary or secondary/replica mode.
-func Bootstrap(joinAddr, joinDb string) error {
+func Bootstrap(localAddr, joinAddr, joinDb string) error {
 	// Open connection to the system database and create system catalog if not created.
-	dbcatalog, err := db.Open(filepath.Join(os.Getenv("DATA_DIR"), ReplicaDBFile), false, false)
+	replicasdb, err := db.Open(filepath.Join(os.Getenv("DATA_DIR"), ReplicaDBFile), false, false, false)
 	if err != nil {
 		return err
 	}
-	defer dbcatalog.Close()
+	defer replicasdb.Close()
 
 	// Create initial system database/catalog schema.
-	if _, err = dbcatalog.Exec(ReplicasSchema); err != nil {
+	if _, err = replicasdb.Exec(ReplicasSchema); err != nil {
 		return err
 	}
 	// Add join candidate to the system catalog and set cluster role.
 	if joinAddr != "" {
 		cluster.SetSecondary()
-		if err := sendJoinRequest(joinAddr, joinDb); err != nil {
+		if err := sendJoinRequest(localAddr, joinAddr, joinDb); err != nil {
+			return err
+		}
+		// Connect to remote after sending join request.
+		// Open a replication link.
+		remoteHost, remotePort, _ := getHostPort(joinAddr)
+		if err := connpool.NewConnection(context.Background(), remoteHost, remotePort, joinDb); err != nil {
 			return err
 		}
 	} else {
 		cluster.SetPrimary()
 		// Check for joined replica node.
-		found, err := checkForJoinRequest(dbcatalog)
+		found, err := checkForJoinRequest(replicasdb)
 		if err != nil {
 			return err
 		}

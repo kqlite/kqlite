@@ -169,14 +169,12 @@ func scanRowNew(rows *sql.Rows, cols []*sql.ColumnType, typeMap *pgtype.Map, oid
 	for i := range refs {
 		refs[i] = &values[i]
 	}
-
 	// Scan from SQLite database.
 	if err := rows.Scan(refs...); err != nil {
 		return nil, fmt.Errorf("scan: %w", err)
 	}
-
 	// Encode values to bytes to return over Postgres wire protocol.
-	row := pgproto3.DataRow{Values: make([][]byte, len(values))}
+	dataRow := pgproto3.DataRow{Values: make([][]byte, len(values))}
 	for i := range values {
 		// Populate OID's when scanning rows.
 		if len(*oids) < len(cols) {
@@ -190,23 +188,20 @@ func scanRowNew(rows *sql.Rows, cols []*sql.ColumnType, typeMap *pgtype.Map, oid
 		} else {
 			buf, err = typeMap.Encode((*oids)[i], pgtype.TextFormatCode, values[i], nil)
 		}
-
 		if err != nil {
 			return nil, err
 		}
-
 		// TODO
-		row.Values[i] = buf
+		dataRow.Values[i] = buf
 	}
 
-	return &row, nil
+	return &dataRow, nil
 }
 
 func encodeRowsNew(rows *sql.Rows, typeMap *pgtype.Map, textDataOnly bool) ([]byte, error) {
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("rows: %w", err)
 	}
-
 	// Encode column header.
 	cols, err := rows.ColumnTypes()
 	if err != nil {
@@ -218,18 +213,16 @@ func encodeRowsNew(rows *sql.Rows, typeMap *pgtype.Map, textDataOnly bool) ([]by
 	var rowDescr *pgproto3.RowDescription
 	// Iterate over each row and encode it to the wire protocol.
 	for rows.Next() {
-		row, err := scanRowNew(rows, cols, typeMap, &oids, textDataOnly)
+		dataRow, err := scanRowNew(rows, cols, typeMap, &oids, textDataOnly)
 		if err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
 		}
-
 		// Generate row description using values and column info.
 		if rowDescr == nil {
 			rowDescr = toRowDescriptionNew(cols, oids, textDataOnly)
 			buf, _ = rowDescr.Encode(nil)
 		}
-
-		buf, _ = row.Encode(buf)
+		buf, _ = dataRow.Encode(buf)
 	}
 
 	return buf, nil

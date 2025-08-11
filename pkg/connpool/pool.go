@@ -112,12 +112,12 @@ func ExecContext(ctx context.Context, dbname string, sql string, args ...any) er
 
 // Begin acquires a connection from the Pool and starts a transaction.
 // Commit or Rollback must be called on the returned transaction to finalize the transaction block.
-func Begin(ctx context.Context, dbname string) (pgx.Tx, error) {
+func BeginTx(ctx context.Context, dbname string, options pgx.TxOptions) (pgx.Tx, error) {
 	p, err := getPool(dbname)
 	if err != nil {
 		return nil, err
 	}
-	return p.BeginTx(ctx, pgx.TxOptions{})
+	return p.BeginTx(ctx, options)
 }
 
 // Clear and flush replication pool.

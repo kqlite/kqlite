@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/kqlite/kqlite/pkg/db"
 	"github.com/kqlite/kqlite/pkg/store"
@@ -118,6 +119,14 @@ func (server *DBServer) serve() error {
 		if err != nil {
 			return err
 		}
+
+		// TCP Fine tunning.
+		tcpcon, _ := c.(*net.TCPConn)
+		tcpcon.SetKeepAliveConfig(net.KeepAliveConfig{
+			Enable:   true,
+			Idle:     (5 * time.Second),
+			Interval: (5 * time.Second),
+			Count:    3})
 
 		conn := NewClientConn(c)
 
@@ -254,31 +263,25 @@ func (server *DBServer) handleStartupMessage(ctx context.Context, conn *ClientCo
 	if appName == "psql" {
 		conn.textDataOnly = true
 	}
-
-	// Set connection in replication mode (not a client connection).
-	user := getParameter(msg.Parameters, "User")
+	// Always sync data with remote node except if this is a replication connection.
+	replicated := true
+	user := getParameter(msg.Parameters, "user")
 	if user == "replication" {
-		conn.isReplicationConn = true
+		replicated = false
+		conn.replicaOnly = true
 	}
 
 	// TODO implement authentication.
 
-	// Open connection to SQL database.
-	walEnabled := true
-	fkEnabled := false
+	// Open connection to SQLite database.
 	dbfilename := name + ".db"
-
 	dbconf := store.DBConfig{
 		OnDiskPath:    filepath.Join(server.DataDir, dbfilename),
-		FKConstraints: fkEnabled,
-		WalEnabled:    walEnabled,
+		FKConstraints: false,
+		WalEnabled:    true,
+		ReadOnly:      false,
 	}
-
-	// If connection is in replication mode (not a standard client connection),
-	// reflecting database changes from other nodes locally,
-	// store must be opened in non-replication (local) mode as there is no need replicating writes to others.
-	isReplicated := !conn.isReplicationConn
-	if conn.st, err = store.Open(isReplicated, dbconf); err != nil {
+	if conn.st, err = store.Open(replicated, dbconf); err != nil {
 		return err
 	}
 	return writeMessages(conn,

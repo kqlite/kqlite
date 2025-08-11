@@ -13,7 +13,7 @@ const (
 	ReplicasSchema = `
 CREATE TABLE IF NOT EXISTS replicas
 	(
-		id		INTEGER PRIMARY KEY AUTOINCREMENT,
+		id		INTEGER PRIMARY KEY,
 		addr	TEXT,
 		db		TEXT
 	)`

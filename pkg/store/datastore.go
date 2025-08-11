@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"reflect"
 	"regexp"
 	"slices"
+	"sync"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
@@ -21,14 +23,15 @@ import (
 var (
 	ErrTxExists   = errors.New("Syntax error, an active transaction is already present")
 	ErrNoActiveTx = errors.New("Syntax error, missing active transaction")
+	txLock        sync.Mutex
 )
 
 // DataStore is an SQLite abstracted replicated database instance with local and remote transaction context.
 type DataStore struct {
-	dbase        *db.Database // sqlite database instance.
-	localTx      *sql.Tx      // Local sqlite transaction.
-	remoteTx     pgx.Tx       // Remote replicated transaction over the PostgreSQL wire protocol.
-	isReplicated bool         // Set DataStore instance as remotely replicated.
+	dbase      *db.Database // sqlite database instance.
+	localTx    *sql.Tx      // Local sqlite transaction.
+	remoteTx   pgx.Tx       // Remote replicated transaction over the PostgreSQL wire protocol.
+	replicated bool         // Should this db connection be replicated.
 }
 
 // Common query response for queries and executes.
@@ -54,20 +57,20 @@ type Statement struct {
 }
 
 // Open a sqlite replicated store with options from DBConfig.
-func Open(isReplicated bool, dbconf DBConfig) (*DataStore, error) {
+func Open(replicated bool, dbconf DBConfig) (*DataStore, error) {
 	var err error
 	var dbase *db.Database
 
 	// Open connection to SQLite database.
-	if dbase, err = db.Open(dbconf.OnDiskPath, dbconf.FKConstraints, dbconf.WalEnabled); err != nil {
+	if dbase, err = db.Open(dbconf.OnDiskPath, dbconf.ReadOnly,
+		dbconf.FKConstraints, dbconf.WalEnabled); err != nil {
 		return nil, err
 	}
-
 	return &DataStore{
-		dbase:        dbase,
-		localTx:      nil,
-		remoteTx:     nil,
-		isReplicated: isReplicated,
+		dbase:      dbase,
+		localTx:    nil,
+		remoteTx:   nil,
+		replicated: replicated,
 	}, err
 }
 
@@ -79,10 +82,6 @@ func (ds *DataStore) Close() {
 // Get store's underlying sqlite database instance.
 func (ds *DataStore) GetDatabase() *db.Database {
 	return ds.dbase
-}
-
-func (ds *DataStore) IsActiveReplica() bool {
-	return ds.isReplicated && connpool.IsConnected(ds.dbase.GetName())
 }
 
 type execQuery interface {
@@ -101,13 +100,17 @@ func StmtReturnsRows(stmt Statement) bool {
 // Handle transaction commands separately from the other SQL commands and create transaction context.
 func (ds *DataStore) handleRemoteTransaction(ctx context.Context, stmt Statement) (bool, error) {
 	var err error
-
 	// Handle start of transaction and create context.
 	if stmt.CmdType == command.BEGIN {
 		if ds.remoteTx != nil {
 			return true, ErrTxExists
 		}
-		if ds.remoteTx, err = connpool.Begin(ctx, ds.dbase.GetName()); err != nil {
+		options := pgx.TxOptions{
+			BeginQuery: "BEGIN",
+		}
+		dbname := ds.dbase.GetName()
+		log.Printf("Send begin query\n")
+		if ds.remoteTx, err = connpool.BeginTx(ctx, dbname, options); err != nil {
 			return true, err
 		}
 		return true, nil
@@ -117,8 +120,10 @@ func (ds *DataStore) handleRemoteTransaction(ctx context.Context, stmt Statement
 			return true, ErrNoActiveTx
 		}
 		if stmt.CmdType == command.COMMIT {
+			log.Printf("Send commit query\n")
 			err = ds.remoteTx.Commit(ctx)
 		} else {
+			log.Printf("Send rollback query\n")
 			err = ds.remoteTx.Rollback(ctx)
 		}
 		// Clear current transaction context when complete.
@@ -138,6 +143,7 @@ func (ds *DataStore) handleLocalTransaction(ctx context.Context, stmt Statement)
 		if ds.localTx != nil {
 			return resp, ErrTxExists
 		}
+		log.Printf("Recv begin query\n")
 		ds.localTx, err = ds.dbase.BeginTx(ctx, nil)
 		resp = QueryResponse{
 			Error:      err,
@@ -151,8 +157,10 @@ func (ds *DataStore) handleLocalTransaction(ctx context.Context, stmt Statement)
 			return resp, ErrNoActiveTx
 		}
 		if stmt.CmdType == command.COMMIT {
+			log.Printf("Recv commit query\n")
 			err = ds.localTx.Commit()
 		} else {
+			log.Printf("Recv rollback query\n")
 			err = ds.localTx.Rollback()
 		}
 		resp = QueryResponse{
@@ -171,9 +179,14 @@ func (ds *DataStore) getWriteStaments(statements []Statement, failed []uint) []S
 	var writeStmts []Statement
 	for idx := range statements {
 		if !slices.Contains(failed, uint(idx)) {
-			readOnly, _ := ds.dbase.StmtReadOnly(statements[idx].Query)
-			if readOnly || statements[idx].CmdType == command.SELECT {
-				continue
+			if statements[idx].CmdType != command.BEGIN &&
+				statements[idx].CmdType != command.COMMIT &&
+				statements[idx].CmdType != command.ROLLBACK &&
+				statements[idx].CmdType != command.UNKNOWN {
+				readOnly, _ := ds.dbase.StmtReadOnly(statements[idx].Query)
+				if readOnly || statements[idx].CmdType == command.SELECT {
+					continue
+				}
 			}
 			writeStmts = append(writeStmts, statements[idx])
 		}
@@ -224,8 +237,9 @@ func (ds *DataStore) ExecuteRemoteRequest(ctx context.Context, statements []Stat
 		if err != nil {
 			return err
 		}
-		// transaction handled, process next statement.
+		// transaction command handled, process next statement.
 		if handled {
+			log.Printf("Handled Tx: %s\n", stmt.Query)
 			continue
 		}
 
@@ -237,6 +251,7 @@ func (ds *DataStore) ExecuteRemoteRequest(ctx context.Context, statements []Stat
 				return err
 			}
 		} else {
+			log.Printf("Remote query: %s\n", stmt.Query)
 			if err := connpool.ExecContext(ctx, dbname, stmt.Query, stmt.Parameters...); err != nil {
 				return err
 			}
@@ -264,11 +279,13 @@ func (ds *DataStore) ExecuteLocalRequest(ctx context.Context, statements []State
 	// Process statements
 	for _, stmt := range statements {
 		resp, err := ds.handleLocalTransaction(ctx, stmt)
-		if resp.CommandTag != "" {
-			response = append(response, resp)
-		}
 		if err != nil {
 			return response, err
+		}
+		// Transaction command handled, proceed wit other statements if present.
+		if resp.CommandTag != "" {
+			response = append(response, resp)
+			continue
 		}
 		// set executor if in transaction context.
 		if ds.localTx != nil {
@@ -291,6 +308,7 @@ func (ds *DataStore) ExecuteLocalRequest(ctx context.Context, statements []State
 				break
 			}
 		} else {
+			log.Printf("Got query %s\n", stmt.Query)
 			result, err := executor.ExecContext(ctx, stmt.Query, stmt.Parameters...)
 			if err != nil {
 				fmt.Printf("Error from query %s", err.Error())
@@ -322,7 +340,7 @@ func (ds *DataStore) ExecuteLocalRequest(ctx context.Context, statements []State
 func (ds *DataStore) Request(ctx context.Context, statements []Statement) ([]QueryResponse, error) {
 	var err error
 	var response []QueryResponse
-	activeReplica := ds.IsActiveReplica()
+	isConnected := connpool.IsConnected(ds.dbase.GetName())
 
 	if cluster.IsPrimary() {
 		// Execute locally first.
@@ -330,8 +348,8 @@ func (ds *DataStore) Request(ctx context.Context, statements []Statement) ([]Que
 		if err != nil {
 			return response, err
 		}
-		// Proceed to replicating write statements only.
-		if activeReplica {
+		// Replicate data to remote.
+		if ds.replicated && isConnected {
 			// Exclude failed local statements to keep consistent.
 			failed := mapFailedStatements(response)
 			writeStmts := ds.getWriteStaments(statements, failed)
@@ -340,16 +358,25 @@ func (ds *DataStore) Request(ctx context.Context, statements []Statement) ([]Que
 				err := ds.ExecuteRemoteRequest(ctx, writeStmts)
 				// TODO handle remote errors, drop remote replica or demote primary
 				if err != nil {
-					// TODO Handle error
+					// TODO Handle network error
+					log.Printf("Got error from remote execution on master: %s", err.Error())
 				}
 			}
 		}
 	} else {
-		if activeReplica {
-			// TODO execute remote
-			// err = ds.ExecuteRemoteRequest(ctx, statements)
+		// Secondary
+		// execute remote if data-sync is on.
+		if ds.replicated && isConnected {
+			writeStmts := ds.getWriteStaments(statements, nil)
+			if len(writeStmts) != 0 {
+				err = ds.ExecuteRemoteRequest(ctx, writeStmts)
+				// TODO handle remote error.
+				if err != nil {
+					log.Printf("Got error from remote execution on replica: %s", err.Error())
+				}
+			}
 		}
-		// Execute locally after replicated sucessfully.
+		// Execute locally after replicated write statements.
 		response, err = ds.ExecuteLocalRequest(ctx, statements)
 	}
 	return response, err
