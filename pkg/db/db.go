@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -11,7 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kqlite/kqlite/pkg/sysdb"
+	"github.com/kqlite/kqlite/pkg/catalog"
+	"github.com/kqlite/kqlite/pkg/util/command"
 	"github.com/mattn/go-sqlite3"
 )
 
@@ -47,16 +49,19 @@ func fileExists(path string) bool {
 }
 
 // Open opens a file-based database using the default driver and the specified options.
-func Open(dbPath string, fkEnabled, wal bool) (*Database, error) {
+func Open(dbPath string, readOnly, fkEnabled, wal bool) (*Database, error) {
 	var err error
 	var rwdb *sql.DB
 
-	rwdb, err = openDBforWrite(dbPath, fkEnabled, wal)
-	if err != nil {
-		return nil, err
+	// Get write connection from pool.
+	if !readOnly {
+		rwdb, err = openDBforWrite(dbPath, fkEnabled, wal)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	readOnly := true
+	readOnly = true
 	rodb, err := openSQLiteDB(dbPath, readOnly, fkEnabled, wal)
 	if err != nil {
 		return nil, err
@@ -85,7 +90,7 @@ func openSQLiteDB(dbPath string, readOnly, fkEnabled, wal bool) (*sql.DB, error)
 	// Read-only connection
 	if readOnly {
 		rodsn := makeDSN(dbPath, readOnly, fkEnabled, wal)
-		rodb, err := sql.Open(sysdb.DriverName, rodsn)
+		rodb, err := sql.Open(catalog.DriverName, rodsn)
 		if err != nil {
 			return nil, err
 		}
@@ -98,11 +103,12 @@ func openSQLiteDB(dbPath string, readOnly, fkEnabled, wal bool) (*sql.DB, error)
 
 	// RW connection
 	rwdsn := makeDSN(dbPath, readOnly, fkEnabled, wal)
-	rwdb, err := sql.Open(sysdb.DriverName, rwdsn)
+	rwdb, err := sql.Open(catalog.DriverName, rwdsn)
 	if err != nil {
 		return nil, err
 	}
 
+	// TODO
 	// Make sure kqlite has full control over the checkpointing process.
 	if _, err := rwdb.Exec("PRAGMA wal_autocheckpoint=0"); err != nil {
 		return nil, fmt.Errorf("disable autocheckpointing: %s", err.Error())
@@ -167,7 +173,6 @@ func (dbase *Database) SetBusyTimeout(rwMs, roMs int) (err error) {
 			return err
 		}
 	}
-
 	return nil
 }
 
@@ -181,7 +186,6 @@ func (dbase *Database) BusyTimeout() (rwMs, roMs int, err error) {
 	if err != nil {
 		return 0, 0, err
 	}
-
 	return rwMs, roMs, nil
 }
 
@@ -220,7 +224,6 @@ func (dbase *Database) CheckpointWithTimeout(mode CheckpointMode, dur time.Durat
 	if ok != 0 {
 		return fmt.Errorf("failed to completely checkpoint WAL (%d ok, %d pages, %d moved)", ok, nPages, nMoved)
 	}
-
 	return nil
 }
 
@@ -231,13 +234,19 @@ func checkpointDB(rwdb *sql.DB, mode CheckpointMode) (ok, pages, moved int, err 
 
 // Vacuum runs a VACUUM on the database.
 func (dbase *Database) Vacuum() error {
-	_, err := dbase.rwdb.Exec("VACUUM")
+	var err error
+	if dbase.rwdb != nil {
+		_, err = dbase.rwdb.Exec("VACUUM")
+	}
 	return err
 }
 
 // VacuumInto VACUUMs the database into the file at path
 func (dbase *Database) VacuumInto(path string) error {
-	_, err := dbase.rwdb.Exec(fmt.Sprintf("VACUUM INTO '%s'", path))
+	var err error
+	if dbase.rwdb != nil {
+		_, err = dbase.rwdb.Exec(fmt.Sprintf("VACUUM INTO '%s'", path))
+	}
 	return err
 }
 
@@ -250,7 +259,11 @@ func (dbase *Database) Close() error {
 // Executes a query without returning any rows. The args are for any placeholder parameters in the query.
 func (dbase *Database) Exec(query string, args ...any) (sql.Result, error) {
 	if query != "" {
-		return dbase.rwdb.Exec(query, args...)
+		if dbase.rwdb != nil {
+			return dbase.rwdb.Exec(query, args...)
+		} else {
+			return dbase.rodb.Exec(query, args...)
+		}
 	}
 	return nil, nil
 }
@@ -259,7 +272,11 @@ func (dbase *Database) Exec(query string, args ...any) (sql.Result, error) {
 // Executes a query without returning any rows. The args are for any placeholder parameters in the query.
 func (dbase *Database) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	if query != "" {
-		return dbase.rwdb.ExecContext(ctx, query, args...)
+		if dbase.rwdb != nil {
+			return dbase.rwdb.ExecContext(ctx, query, args...)
+		} else {
+			return dbase.rodb.ExecContext(ctx, query, args...)
+		}
 	}
 	return nil, nil
 }
@@ -269,13 +286,27 @@ func (dbase *Database) ExecContext(ctx context.Context, query string, args ...an
 func (dbase *Database) Query(query string, args ...any) (*sql.Rows, error) {
 	if query != "" {
 		ro, _ := dbase.StmtReadOnly(query)
-		if ro {
-			return dbase.rodb.Query(query, args...)
-		} else {
+		if !ro && dbase.rwdb != nil {
 			return dbase.rwdb.Query(query, args...)
+		} else {
+			return dbase.rodb.Query(query, args...)
 		}
 	}
 	return nil, nil
+}
+
+// A tiny wrapper around sql.QueryRow.
+// Executes a query that returns a single row, typically a SELECT. The args are for any placeholder parameters in the query.
+func (dbase *Database) QueryRow(query string, args ...any) *sql.Row {
+	if query != "" {
+		ro, _ := dbase.StmtReadOnly(query)
+		if !ro && dbase.rwdb != nil {
+			return dbase.rwdb.QueryRow(query, args...)
+		} else {
+			return dbase.rodb.QueryRow(query, args...)
+		}
+	}
+	return nil
 }
 
 // A tiny wrapper around sql.QueryContext.
@@ -283,10 +314,10 @@ func (dbase *Database) Query(query string, args ...any) (*sql.Rows, error) {
 func (dbase *Database) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	if query != "" {
 		ro, _ := dbase.StmtReadOnly(query)
-		if ro {
-			return dbase.rodb.QueryContext(ctx, query, args...)
-		} else {
+		if !ro && dbase.rwdb != nil {
 			return dbase.rwdb.QueryContext(ctx, query, args...)
+		} else {
+			return dbase.rodb.QueryContext(ctx, query, args...)
 		}
 	}
 	return nil, nil
@@ -301,7 +332,6 @@ func (dbase *Database) StmtReadOnly(sql string) (bool, error) {
 		return false, err
 	}
 	defer conn.Close()
-
 	return dbase.StmtReadOnlyWithConn(sql, conn)
 }
 
@@ -324,16 +354,78 @@ func (dbase *Database) StmtReadOnlyWithConn(sql string, conn *sql.Conn) (bool, e
 	if err := conn.Raw(f); err != nil {
 		return false, err
 	}
-
 	return readOnly, nil
 }
 
 // A tiny wrapper around sql.BeginTx.
 func (dbase *Database) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
-	return dbase.rwdb.BeginTx(ctx, opts)
+	if dbase.rwdb != nil {
+		return dbase.rwdb.BeginTx(ctx, opts)
+	} else {
+		return nil, errors.New("Read only database")
+	}
 }
 
+// Get database name without file extension.
 func (dbase *Database) GetName() string {
 	_, file := filepath.Split(dbase.path)
 	return strings.TrimSuffix(file, ".db")
+}
+
+// UpdateHookCallback is a callback function that is called before a row is modified
+// in the database.
+type UpdateHookCallback func(ev *command.UpdateHookEvent) error
+
+// RegisterUpdateHook registers a callback that is called when a row is modified
+// in the database. If a callback is already registered, it is replaced. If hook is nil,
+// the callback is removed.
+func (dbase *Database) RegisterUpdateHook(hook UpdateHookCallback) error {
+	if dbase.rwdb == nil {
+		return errors.New("Read only database.")
+	}
+	// Convert from SQLite hook data to rqlite hook data.
+	convertFn := func(op int, _, table string, rowID int64) (*command.UpdateHookEvent, error) {
+		ev := &command.UpdateHookEvent{
+			Table: table,
+			RowId: rowID,
+		}
+
+		switch op {
+		case sqlite3.SQLITE_INSERT:
+			ev.Op = command.UpdateHookEvent_INSERT
+		case sqlite3.SQLITE_UPDATE:
+			ev.Op = command.UpdateHookEvent_UPDATE
+		case sqlite3.SQLITE_DELETE:
+			ev.Op = command.UpdateHookEvent_DELETE
+		default:
+			return nil, fmt.Errorf("unknown update hook operation %d", op)
+		}
+		return ev, nil
+	}
+
+	// Register the callback with the SQLite connection.
+	var cb func(int, string, string, int64)
+	if hook != nil {
+		cb = func(op int, dbName, tblName string, rowID int64) {
+			ev, err := convertFn(op, dbName, tblName, rowID)
+			if err != nil {
+				ev.Error = err.Error()
+			}
+		}
+	}
+	f := func(driverConn any) error {
+		conn := driverConn.(*sqlite3.SQLiteConn)
+		conn.RegisterUpdateHook(cb)
+		return nil
+	}
+
+	conn, err := dbase.rwdb.Conn(context.Background())
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if err := conn.Raw(f); err != nil {
+		return err
+	}
+	return nil
 }

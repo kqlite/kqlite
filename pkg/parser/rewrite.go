@@ -22,6 +22,11 @@ func replaceArgStubs(sql string) string {
 	})
 }
 
+func RewriteQueryBlobSerialization(q string) string {
+	q = emptyBlobSerializedRegex.ReplaceAllString(q, "'0'")
+	return blobSerializedRegex.ReplaceAllString(q, "unhex('$1')")
+}
+
 // Basic query rewrite.
 func RewriteQuery(q string) string {
 	// Ignore SET queries by rewriting them to empty resultsets.
@@ -55,6 +60,7 @@ func RewriteQuery(q string) string {
 	// Binary data (BLOB) needs to be serialised and deserialised upon receiving before data enters DB.
 	// The deserialization is done from sqlite by using the 'unhex' builtin https://www.sqlite.org/lang_corefunc.html#unhex.
 	q = blobSerializedRegex.ReplaceAllString(q, "unhex('$1')")
+	q = emptyBlobSerializedRegex.ReplaceAllString(q, "'0'")
 
 	return replaceArgStubs(q)
 }
@@ -67,6 +73,8 @@ var (
 	pgCatalogRegex = regexp.MustCompile(`\bpg_catalog\.`)
 
 	showRegex = regexp.MustCompile(`^SHOW (\w+)`)
+
+	emptyBlobSerializedRegex = regexp.MustCompile(`\'\\x\'`)
 
 	blobSerializedRegex = regexp.MustCompile(`\'\\x([^\\x,]+)\'`)
 )

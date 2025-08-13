@@ -83,6 +83,7 @@ func testTransaction(ctx context.Context, db *sql.DB) {
 	log.Println("Test transaction")
 
 	tx, err := db.BeginTx(ctx, nil)
+	//_, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -122,9 +123,10 @@ func main() {
 	pingDB(ctx, db)
 
 	testTransaction(ctx, db)
-	simpleSelectPreparedQuery(ctx, db)
-	simpleUpdateQuery(ctx, db)
-	simpleSelectQuery(ctx, db)
+	time.Sleep(300 * time.Second)
+	//simpleSelectPreparedQuery(ctx, db)
+	//simpleUpdateQuery(ctx, db)
+	//simpleSelectQuery(ctx, db)
 }
 
 /*

@@ -38,11 +38,11 @@ type ClientConn struct {
 	// Map of prepared portals for this client session.
 	portals map[string]*PreparedPortal
 
+	// Replication (not client connection) only connetion.
+	replicaOnly bool
+
 	// Forcing to send data in Text format is required when this is a connection from psql client.
 	textDataOnly bool
-
-	// Indicates if this is a replication connection initiated from primary server.
-	isReplicationConn bool
 }
 
 func timer(name string) func() {
@@ -84,7 +84,6 @@ func (conn *ClientConn) handleCreateDB(msg *pgproto3.Query) (bool, error) {
 			&pgproto3.CommandComplete{CommandTag: []byte("CREATE DATABASE")},
 			&pgproto3.ReadyForQuery{TxStatus: 'I'})
 	}
-
 	return false, nil
 }
 
@@ -109,11 +108,19 @@ func (conn *ClientConn) handleQuery(ctx context.Context, msg *pgproto3.Query) er
 		return conn.handleCopy(ctx, msg)
 	}
 
-	// Rewrite system-information queries so they're tolerable by SQLite.
-	query := parser.RewriteQuery(msg.String)
-	if msg.String != query {
-		// Debug log the rewritten query.
-		// log.Printf("query rewrite: %s", query)
+	log.Printf("simple raw query :%s", msg.String)
+
+	var query string
+	if !conn.replicaOnly {
+		// Rewrite system-information queries so they're tolerable by SQLite.
+		query = parser.RewriteQuery(msg.String)
+		if msg.String != query {
+			// Debug log the rewritten query.
+			// log.Printf("query rewrite: %s", query)
+		}
+	} else {
+		// if not a client query but a replication query, no need to rewrite.
+		query = parser.RewriteQueryBlobSerialization(msg.String)
 	}
 
 	// Extract all statements present in the SQL query and do a syntax validation.
@@ -140,30 +147,13 @@ func (conn *ClientConn) handleQuery(ctx context.Context, msg *pgproto3.Query) er
 		}
 	} else {
 		// A read-only query not recognised from parser.
-		rows, err := conn.st.GetDatabase().QueryContext(ctx, query)
-		if err != nil {
-			log.Printf("execute query: %s, err: %s\n", query, err.Error())
-			return writeMessages(conn,
-				&pgproto3.ErrorResponse{Message: err.Error()},
-				&pgproto3.ReadyForQuery{TxStatus: 'I'})
-		}
-		defer rows.Close()
-
-		// Encode result rows to PG wire data rows.
-		buf, err := encodeRowsNew(rows, conn.typeMap, conn.textDataOnly)
-		if err != nil {
-			return err
-		}
-
-		buf, _ = (&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")}).Encode(buf)
-		if _, err := conn.Write(buf); err != nil {
-			return err
-		}
-
-		// Send command complete along with the result data.
-		return writeMessages(conn, &pgproto3.ReadyForQuery{TxStatus: 'I'})
+		log.Printf("execute QueryContext unrecognized query by parser, query: %s\n", query)
+		statements = append(statements, store.Statement{
+			Query:       query,
+			CmdType:     command.UNKNOWN,
+			ReturnsRows: true,
+		})
 	}
-
 	// Execute all statements part of the SQL query.
 	response, err := conn.st.Request(ctx, statements)
 	if err != nil {
@@ -205,7 +195,6 @@ func (conn *ClientConn) handleQuery(ctx context.Context, msg *pgproto3.Query) er
 			return err
 		}
 	}
-
 	// Complete the response with sending 'Ready for Query'.
 	return writeMessages(conn, &pgproto3.ReadyForQuery{TxStatus: 'I'})
 }
@@ -294,7 +283,6 @@ func (conn *ClientConn) handleExecute(ctx context.Context, msg *pgproto3.Execute
 	if _, err := conn.Write(buf); err != nil {
 		return err
 	}
-
 	return nil
 }
 
@@ -351,7 +339,6 @@ func (conn *ClientConn) handleSync(ctx context.Context, msg *pgproto3.Sync) erro
 	if err := writeMessages(conn, &pgproto3.ReadyForQuery{TxStatus: 'I'}); err != nil {
 		return err
 	}
-
 	return nil
 }
 
@@ -381,7 +368,6 @@ func writePreparedRowDescription(conn *ClientConn, prepared *PreparedStatement) 
 			return err
 		}
 	}
-
 	return nil
 }
 
@@ -429,7 +415,6 @@ func (conn *ClientConn) handleDescribe(ctx context.Context, msg *pgproto3.Descri
 			pgerrcode.ProtocolViolation, fmt.Sprintf("invalid DESCRIBE message subtype %x", msg.ObjectType),
 		)
 	}
-
 	return nil
 }
 
@@ -491,7 +476,6 @@ func (conn *ClientConn) handleParse(ctx context.Context, msg *pgproto3.Parse) er
 			return err
 		}
 	}
-
 	// Parsing complete.
 	return writeMessages(conn, &pgproto3.ParseComplete{})
 }

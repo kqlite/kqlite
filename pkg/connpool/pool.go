@@ -47,7 +47,7 @@ func connHealthCheck(conn *pgx.Conn) error {
 
 // Open new replication connection with target parameters host and database name.
 // If connections already exists, a new connection isn't established.
-func NewConnection(ctx context.Context, host, dbname string) error {
+func NewConnection(ctx context.Context, host, port, dbname string) error {
 	if host == "" || dbname == "" {
 		return ErrInvalidConnParams
 	}
@@ -64,12 +64,11 @@ func NewConnection(ctx context.Context, host, dbname string) error {
 		return true
 	}
 
-	connString := fmt.Sprintf("user=replication password=replication host=%s port=5433 dbname=%s sslmode=disable", host, dbname)
+	connString := fmt.Sprintf("user=replication password=replication host=%s port=%s dbname=%s sslmode=disable", host, port, dbname)
 	config, err := pgxpool.ParseConfig(connString)
 	if err != nil {
 		return err
 	}
-
 	// Always use simple query protocol for replication.
 	config.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 	config.BeforeAcquire = beforeAcquire
@@ -107,19 +106,18 @@ func ExecContext(ctx context.Context, dbname string, sql string, args ...any) er
 	if err != nil {
 		return err
 	}
-
 	_, err = p.Exec(ctx, sql, args...)
 	return err
 }
 
 // Begin acquires a connection from the Pool and starts a transaction.
 // Commit or Rollback must be called on the returned transaction to finalize the transaction block.
-func Begin(ctx context.Context, dbname string) (pgx.Tx, error) {
+func BeginTx(ctx context.Context, dbname string, options pgx.TxOptions) (pgx.Tx, error) {
 	p, err := getPool(dbname)
 	if err != nil {
 		return nil, err
 	}
-	return p.BeginTx(ctx, pgx.TxOptions{})
+	return p.BeginTx(ctx, options)
 }
 
 // Clear and flush replication pool.

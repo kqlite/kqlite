@@ -10,10 +10,10 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/kqlite/kqlite/pkg/db"
 	"github.com/kqlite/kqlite/pkg/store"
-	"github.com/kqlite/kqlite/pkg/sysdb"
 
 	"github.com/jackc/pgx/v5/pgproto3"
 	"golang.org/x/sync/errgroup"
@@ -22,7 +22,6 @@ import (
 // Postgres settings.
 const (
 	ServerVersion = "14.0.0"
-	systemDB      = "kqlite.db"
 )
 
 // Represents the database server to serve client connections.
@@ -66,17 +65,6 @@ func NewServer(address, datadir string) *DBServer {
 func (server *DBServer) Start() (err error) {
 	// Ensure data directory exists.
 	if _, err = os.Stat(server.DataDir); err != nil {
-		return err
-	}
-
-	// Open connection to the system database.
-	server.systemdb, err = db.Open(filepath.Join(server.DataDir, systemDB), false, false)
-	if err != nil {
-		return err
-	}
-
-	// Create system database schema.
-	if _, err = server.systemdb.Exec(sysdb.SystemSchema); err != nil {
 		return err
 	}
 
@@ -131,6 +119,14 @@ func (server *DBServer) serve() error {
 		if err != nil {
 			return err
 		}
+
+		// TCP Fine tunning.
+		tcpcon, _ := c.(*net.TCPConn)
+		tcpcon.SetKeepAliveConfig(net.KeepAliveConfig{
+			Enable:   true,
+			Idle:     (5 * time.Second),
+			Interval: (5 * time.Second),
+			Count:    3})
 
 		conn := NewClientConn(c)
 
@@ -267,39 +263,27 @@ func (server *DBServer) handleStartupMessage(ctx context.Context, conn *ClientCo
 	if appName == "psql" {
 		conn.textDataOnly = true
 	}
-
-	// Set connection in replication mode (not a client connection).
-	user := getParameter(msg.Parameters, "User")
+	// Always sync data with remote node except if this is a replication connection.
+	replicated := true
+	user := getParameter(msg.Parameters, "user")
 	if user == "replication" {
-		conn.isReplicationConn = true
+		replicated = false
+		conn.replicaOnly = true
 	}
 
 	// TODO implement authentication.
 
-	// Open connection to SQL database.
-	walEnabled := true
-	fkEnabled := false
+	// Open connection to SQLite database.
 	dbfilename := name + ".db"
-
 	dbconf := store.DBConfig{
 		OnDiskPath:    filepath.Join(server.DataDir, dbfilename),
-		FKConstraints: fkEnabled,
-		WalEnabled:    walEnabled,
+		FKConstraints: false,
+		WalEnabled:    true,
+		ReadOnly:      false,
 	}
-
-	// If connection is in replication mode (not a standard client connection),
-	// reflecting database changes from other nodes locally,
-	// store must be opened in non-replication (local) mode as there is no need replicating writes to others.
-	isReplicated := !conn.isReplicationConn
-	if conn.st, err = store.Open(isReplicated, dbconf); err != nil {
+	if conn.st, err = store.Open(replicated, dbconf); err != nil {
 		return err
 	}
-
-	// Initialize postgres catalog virtual tables.
-	if err = initCatatog(ctx, conn.st.GetDatabase()); err != nil {
-		return err
-	}
-
 	return writeMessages(conn,
 		&pgproto3.AuthenticationOk{},
 		&pgproto3.ParameterStatus{Name: "server_version", Value: ServerVersion},
