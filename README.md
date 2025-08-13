@@ -3,8 +3,8 @@
   <source media="(prefers-color-scheme: dark)" srcset="kqlite-logo-with-text.png">
  <img alt="kqlite logo" src="kqlite-logo-with-text.png" width='500px'>
 </picture>
-<br/><br/>
 
+##
 [![Experimental](https://img.shields.io/badge/status-experimental-orange.svg)](https://shields.io/)
 [![CI](https://github.com/kqlite/kqlite/actions/workflows/ci.yml/badge.svg)](https://github.com/kqlite/kqlite/actions/workflows/go.yml) 
 [![Go Report Card](https://goreportcard.com/badge/github.com/kqlite/kqlite)](https://goreportcard.com/report/github.com/kqlite/kqlite)
