@@ -8,7 +8,7 @@
 [![Experimental](https://img.shields.io/badge/status-experimental-orange.svg)](https://shields.io/)
 [![CI](https://github.com/kqlite/kqlite/actions/workflows/ci.yml/badge.svg)](https://github.com/kqlite/kqlite/actions/workflows/go.yml) 
 [![Go Report Card](https://goreportcard.com/badge/github.com/kqlite/kqlite)](https://goreportcard.com/report/github.com/kqlite/kqlite)
-
+##
 #### Lightweight remote SQLite with high availability and auto failover.<br>
 
 - Replicated SQLite database and remote access over the PostgreSQL wire protocol.
