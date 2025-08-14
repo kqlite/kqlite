@@ -9,14 +9,12 @@
 [![CI](https://github.com/kqlite/kqlite/actions/workflows/ci.yml/badge.svg)](https://github.com/kqlite/kqlite/actions/workflows/go.yml) 
 [![Go Report Card](https://goreportcard.com/badge/github.com/kqlite/kqlite)](https://goreportcard.com/report/github.com/kqlite/kqlite)
 
-#### Lightweight remote SQLite with high availability and auto failover.<br>
-
 - Replicated SQLite database and remote access over the PostgreSQL wire protocol.
 - Auto failover to an active secondary instance and registering back as secondary a former primary.
 - Quick and easy setup and high availability configuration with only two DB Nodes.
 
 Works by translating PostgreSQL frontend wire messages into SQLite transactions and converting results back into PostgreSQL response wire messages. 
-Many PostgreSQL clients also inspect the pg_catalog to determine system information so ***kqlite*** mirrors this catalog by using an attached in-memory database with virtual tables. 
+Many PostgreSQL clients also inspect the pg_catalog to determine system information so **kqlite** mirrors this catalog by using an attached in-memory database with virtual tables. 
 A rewrite on those system queries is performed to convert them to usable SQLite syntax.
 
 
@@ -70,7 +68,7 @@ Status overview:
    ```
    `DBNAME must be without the '.db' suffix.`
  * Transaction support in terms of `sqlite`.
- * Currently ***pgx*** through `database/sql` is tested and proven to work (https://github.com/jackc/pgx/wiki/Getting-started-with-pgx-through-database-sql).
+ * Currently **pgx** through `database/sql` is tested and proven to work (https://github.com/jackc/pgx/wiki/Getting-started-with-pgx-through-database-sql).
  * A lightweight storage backend for K8s (https://docs.k3s.io/datastore) is proven to work.<br>
    Installing and using k3s with postgresql/kqlite
    ```sh
