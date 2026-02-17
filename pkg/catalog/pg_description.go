@@ -1,4 +1,4 @@
-package sysdb
+package catalog
 
 import (
 	"fmt"

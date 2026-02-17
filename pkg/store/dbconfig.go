@@ -15,6 +15,9 @@ type DBConfig struct {
 
 	// Open the SQLite datbase in WAL mode.
 	WalEnabled bool
+
+	// Read-only database
+	ReadOnly bool
 }
 
 // NewDBConfig returns a new DB config instance.

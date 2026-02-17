@@ -19,6 +19,22 @@ const (
 	UNKNOWN  SQLCommandType = "UNKNOWN"
 )
 
+type UpdateOperation int
+
+const (
+	UpdateHookEvent_UNKNONW UpdateOperation = iota
+	UpdateHookEvent_INSERT
+	UpdateHookEvent_UPDATE
+	UpdateHookEvent_DELETE
+)
+
+type UpdateHookEvent struct {
+	Error string
+	Table string
+	Op    UpdateOperation
+	RowId int64
+}
+
 // Convert parser command types to a common SQL statement command.
 func ConvertToStmtCmd(stmtResult parser.ParserStmtResult) SQLCommandType {
 	// Transaction commands.
@@ -48,7 +64,10 @@ func ConvertToStmtCmd(stmtResult parser.ParserStmtResult) SQLCommandType {
 
 		case pg_query.CmdType_CMD_UPDATE:
 			return UPDATE
+
+		default:
+			return UNKNOWN
 		}
 	}
-	return ""
+	return UNKNOWN
 }
