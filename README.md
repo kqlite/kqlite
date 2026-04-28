@@ -2,10 +2,9 @@
  <source media="(prefers-color-scheme: light)" srcset="zitdb-transparent.png">
   <source media="(prefers-color-scheme: dark)" srcset="zitdb-transparent.png">
  <p align="center">
-   <img alt="zitdb logo" src="zitdb-transparent.png" width="500px">
+   <img alt="zitdb logo" src="zitdb-transparent.png" height="450px">
  </p>
 </picture>
-<br/><br/>
 
 [![Experimental](https://img.shields.io/badge/status-experimental-orange.svg)](https://shields.io/)
 [![CI](https://github.com/kqlite/kqlite/actions/workflows/ci.yml/badge.svg)](https://github.com/kqlite/kqlite/actions/workflows/go.yml) 
