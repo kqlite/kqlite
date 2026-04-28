@@ -2,7 +2,7 @@
  <source media="(prefers-color-scheme: light)" srcset="zitdb-text.png">
   <source media="(prefers-color-scheme: dark)" srcset="zitdb-text.png">
  <p align="center">
-   <img alt="zitdb logo" src="zitdb-text.png" width="400px">
+   <img alt="zitdb logo" src="zitdb-text.png">
  </p>
 </picture>
 <br/><br/>
