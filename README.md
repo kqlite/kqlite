@@ -1,8 +1,8 @@
 <picture>
- <source media="(prefers-color-scheme: light)" srcset="litedb-image.png">
-  <source media="(prefers-color-scheme: dark)" srcset="litedb-image.png">
+ <source media="(prefers-color-scheme: light)" srcset="liteserver.png">
+  <source media="(prefers-color-scheme: dark)" srcset="liteserver.png">
  <p align="center">
-   <img alt="zitdb logo" src="litedb-image.png" width="400px">
+   <img alt="zitdb logo" src="liteserver.png" width="400px">
  </p>
 </picture>
 
