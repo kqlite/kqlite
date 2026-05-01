@@ -5,6 +5,8 @@
    <img alt="zitdb logo" src="liteserver.png" width="400px">
  </p>
 </picture>
+<br>
+
 
 [![Experimental](https://img.shields.io/badge/status-experimental-orange.svg)](https://shields.io/)
 [![CI](https://github.com/kqlite/kqlite/actions/workflows/ci.yml/badge.svg)](https://github.com/kqlite/kqlite/actions/workflows/go.yml) 
